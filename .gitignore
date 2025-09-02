@@ -427,4 +427,7 @@ $RECYCLE.BIN/
 # Windows shortcuts
 *.lnk
 
+# dataset 무시
+dataset/
+
 # End of https://www.toptal.com/developers/gitignore/api/c,c++,python,linux,macos,windows,eclipse,visualstudiocode,cmake,ninja
