@@ -429,6 +429,7 @@ $RECYCLE.BIN/
 
 # dataset 무시
 dataset/
+dataset_preprocessed/
 
 # pth 무시
 *.pth

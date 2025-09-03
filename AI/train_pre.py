@@ -139,10 +139,10 @@ def main(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Train a skin analysis model.')
     # <<< 중요: 기본 경로를 전처리된 데이터셋으로 변경
-    parser.add_argument('--json_path', type=str, default='dataset_preprocessed/coco_skin_dataset.json', help='Path to the preprocessed COCO JSON dataset.')
-    parser.add_argument('--model_save_path', type=str, default='AI/skin_analysis_model.pth', help='Path to save the trained model.')
+    parser.add_argument('--json_path', type=str, default='../dataset_preprocessed/coco_skin_dataset.json', help='Path to the preprocessed COCO JSON dataset.')
+    parser.add_argument('--model_save_path', type=str, default='skin_analysis_model.pth', help='Path to save the trained model.')
     parser.add_argument('--learning_rate', type=float, default=1e-4, help='Learning rate.')
-    parser.add_argument('--batch_size', type=int, default=16, help='Batch size.')
+    parser.add_argument('--batch_size', type=int, default=64, help='Batch size.')
     parser.add_argument('--epochs', type=int, default=25, help='Number of epochs to train.')
 
     args = parser.parse_args()
