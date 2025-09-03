@@ -1,3 +1,8 @@
+'''
+CPU 속도 문제 해결을 위해 preprocess.py에서 전처리된 데이터셋을 사용하는 코드
+preprocess.py에서 생성된 coco_skin_dataset.json 파일을 사용
+전처리된 이미지가 저장된 디렉토리 구조를 정확히 반영해야 함
+'''
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -16,7 +21,7 @@ import numpy as np
 class SkinDataset(Dataset):
     def __init__(self, json_path, transform=None):
         print(f"Loading dataset from: {json_path}")
-        self.json_path = json_path # 나중에 이미지 경로를 만들기 위해 저장
+        self.json_path = json_path 
         with open(json_path, 'r') as f:
             self.coco_data = json.load(f)
         
@@ -44,7 +49,6 @@ class SkinDataset(Dataset):
     def __getitem__(self, idx):
         img_info = self.valid_images[idx]
         
-        # <<< 중요: JSON 파일이 위치한 폴더를 기준으로 이미지 경로 생성
         dataset_dir = os.path.dirname(self.json_path)
         img_path = os.path.join(dataset_dir, img_info['file_name'])
         
@@ -65,7 +69,6 @@ class SkinDataset(Dataset):
         return image, target
 
 class SkinAnalysisModel(nn.Module):
-    # (이 부분은 변경 없음)
     def __init__(self, num_outputs):
         super(SkinAnalysisModel, self).__init__()
         self.resnet = models.resnet50(weights=models.ResNet50_Weights.DEFAULT)
@@ -80,9 +83,8 @@ class SkinAnalysisModel(nn.Module):
         return self.resnet(x)
 
 def main(args):
-    # <<< 중요: transforms.Resize 제거! ---
     transform = transforms.Compose([
-        # transforms.Resize((224, 224)), # 더 이상 필요 없으므로 제거
+        # transforms.Resize((224, 224)), 
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     ])
@@ -96,11 +98,9 @@ def main(args):
     print(f"Training set size: {len(train_dataset)}")
     print(f"Validation set size: {len(val_dataset)}")
 
-    # 데이터 로딩 효율을 위해 num_workers와 pin_memory 사용
     train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=16, pin_memory=True)
     val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False, num_workers=16, pin_memory=True)
 
-    # (이후 학습 로직은 변경 없음)
     num_classes = full_dataset.num_categories
     model = SkinAnalysisModel(num_outputs=num_classes)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -139,6 +139,7 @@ def main(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Train a skin analysis model.')
     # <<< 중요: 기본 경로를 전처리된 데이터셋으로 변경
+    # 정확한 파일 트리 구조 필요
     parser.add_argument('--json_path', type=str, default='../dataset_preprocessed/coco_skin_dataset.json', help='Path to the preprocessed COCO JSON dataset.')
     parser.add_argument('--model_save_path', type=str, default='skin_analysis_model.pth', help='Path to save the trained model.')
     parser.add_argument('--learning_rate', type=float, default=1e-4, help='Learning rate.')

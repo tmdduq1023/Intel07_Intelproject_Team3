@@ -1,4 +1,3 @@
-
 import json
 import os
 import glob
@@ -12,7 +11,7 @@ def create_coco_dataset():
             "description": "Skin Analysis Dataset",
             "version": "1.0",
             "year": 2025,
-            "contributor": "Gemini",
+            "contributor": "Bbang",
             "date_created": "2025/09/03"
         },
         "licenses": [],

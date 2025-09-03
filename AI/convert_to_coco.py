@@ -34,7 +34,7 @@ def convert_to_coco(dataset_path, output_file):
             "description": "Custom Dataset to COCO format",
             "version": "1.0",
             "year": 2025,
-            "contributor": "Gemini",
+            "contributor": "Bbang",
             "date_created": "2025/09/03"
         },
         "licenses": [],
