@@ -430,4 +430,7 @@ $RECYCLE.BIN/
 # dataset 무시
 dataset/
 
+# pth 무시
+*.pth
+
 # End of https://www.toptal.com/developers/gitignore/api/c,c++,python,linux,macos,windows,eclipse,visualstudiocode,cmake,ninja
