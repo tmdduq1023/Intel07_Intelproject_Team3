@@ -1,165 +1,64 @@
+# convert_to_yolo.py
+import json, os, argparse
+from pathlib import Path
 
-import os
-import json
-import glob
-from tqdm import tqdm
+ROI_CLASSES = [
+    "facepart::forehead",
+    "facepart::glabella",
+    "facepart::left_crowsfeet",
+    "facepart::right_crowsfeet",
+    "facepart::left_cheek",
+    "facepart::right_cheek",
+    "facepart::lips",
+    "facepart::chin",
+]
+ROI_TO_ID = {name: i for i, name in enumerate(ROI_CLASSES)}
 
-def convert_to_coco(dataset_path, output_file):
-    """
-    Converts a custom dataset format to COCO format.
+def convert(json_path: str, img_root: str, out_dir: str):
+    coco = json.load(open(json_path, "r"))
+    id2img = {im["id"]: im for im in coco["images"]}
+    id2cat = {c["id"]: c["name"] for c in coco["categories"]}
 
-    The script expects a directory structure like:
-    dataset_path/
-    ├── Training/
-    │   ├── labeled_data/
-    │   │   ├── 1_digital_camera/
-    │   │   │   ├── 0002/
-    │   │   │   │   ├── 0002_01_F_00.json
-    │   │   │   │   └── ...
-    │   │   └── ...
-    │   └── origin_data/
-    │       ├── 1_digital_camera/
-    │       │   ├── 0002/
-    │       │   │   ├── 0002_01_F.jpg
-    │       │   │   └── ...
-    │       └── ...
-    └── ...
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
 
-    Args:
-        dataset_path (str): The root path of the dataset.
-        output_file (str): The path to save the output COCO annotation file.
-    """
-    coco_format = {
-        "info": {
-            "description": "Custom Dataset to COCO format",
-            "version": "1.0",
-            "year": 2025,
-            "contributor": "Bbang",
-            "date_created": "2025/09/03"
-        },
-        "licenses": [],
-        "images": [],
-        "annotations": [],
-        "categories": []
-    }
+    cnt_total = 0
+    cnt_by_cls = {k:0 for k in ROI_CLASSES}
 
-    image_id_counter = 1
-    annotation_id_counter = 1
-    category_map = {}
-    category_id_counter = 1
-
-    training_path = os.path.join(dataset_path, 'Training')
-    origin_data_path = os.path.join(training_path, 'origin_data')
-    labeled_data_path = os.path.join(training_path, 'labeled_data')
-
-    image_files = glob.glob(os.path.join(origin_data_path, '**', '*.jpg'), recursive=True)
-    
-    print(f"Found {len(image_files)} images to process.")
-
-    for image_path in tqdm(image_files, desc="Processing images"):
-        relative_image_path = os.path.relpath(image_path, origin_data_path)
-        
-        json_base_path = os.path.join(labeled_data_path, os.path.splitext(relative_image_path)[0])
-        
-        label_files = glob.glob(f"{json_base_path}*.json")
-        
-        if not label_files:
+    for ann in coco["annotations"]:
+        cat_name = id2cat.get(ann.get("category_id"))
+        if cat_name not in ROI_TO_ID:
+            continue
+        bbox = ann.get("bbox")
+        if not bbox:
             continue
 
-        try:
-            width, height = -1, -1
-            for lf in label_files:
-                 with open(lf, 'r') as f:
-                    temp_data = json.load(f)
-                    if (temp_data.get('images') and
-                        temp_data['images'].get('width') and
-                        temp_data['images'].get('height') and
-                        temp_data['images'].get('bbox')):
-                        if temp_data['images']['bbox'][0] == 0 and temp_data['images']['bbox'][1] == 0:
-                             width = temp_data['images']['width']
-                             height = temp_data['images']['height']
-                             break
-            
-            if width == -1 or height == -1:
-                with open(label_files[0], 'r') as f:
-                    first_label_data = json.load(f)
-                    if first_label_data.get('images'):
-                        width = first_label_data['images'].get('width', -1)
-                        height = first_label_data['images'].get('height', -1)
+        im = id2img[ann["image_id"]]
+        W, H = im["width"], im["height"]
+        x, y, w, h = bbox
+        xc, yc = (x + w/2) / W, (y + h/2) / H
+        ww, hh = w / W, h / H
+        cls_id = ROI_TO_ID[cat_name]
 
-            if width == -1 or height == -1:
-                print(f"Warning: Could not determine dimensions for {image_path}. Skipping.")
-                continue
+        # 이미지의 상대경로(file_name)를 그대로 따라 라벨 경로 생성
+        rel_img = Path(im["file_name"])            # e.g. 1_digital_camera/0002/xxx.jpg
+        out_txt = (out_dir / rel_img).with_suffix(".txt")
+        out_txt.parent.mkdir(parents=True, exist_ok=True)
 
-        except (IOError, json.JSONDecodeError, KeyError) as e:
-            print(f"Warning: Could not read or parse base label file for {image_path}. Skipping. Error: {e}")
-            continue
+        with open(out_txt, "a") as f:
+            f.write(f"{cls_id} {xc} {yc} {ww} {hh}\n")
 
-        image_info = {
-            "id": image_id_counter,
-            "width": width,
-            "height": height,
-            "file_name": relative_image_path.replace(os.path.sep, '/')
-        }
-        coco_format["images"].append(image_info)
+        cnt_total += 1
+        cnt_by_cls[cat_name] += 1
 
-        for label_file in label_files:
-            try:
-                with open(label_file, 'r') as f:
-                    label_data = json.load(f)
+    print(f"✅ YOLO 라벨 생성: {cnt_total}개")
+    for k,v in cnt_by_cls.items():
+        print(f" - {k}: {v}")
 
-                annotations = label_data.get('annotations')
-                if not annotations:
-                    continue
-                
-                for category_name, value in annotations.items():
-                    if value is not None and value != 0:
-                        
-                        if category_name not in category_map:
-                            category_map[category_name] = category_id_counter
-                            coco_format['categories'].append({
-                                "id": category_id_counter,
-                                "name": category_name,
-                                "supercategory": "object"
-                            })
-                            category_id_counter += 1
-                        
-                        category_id = category_map[category_name]
-
-                        bbox_data = label_data.get('images', {}).get('bbox')
-                        if bbox_data:
-                            x_min, y_min, x_max, y_max = bbox_data
-                            width_bbox = x_max - x_min
-                            height_bbox = y_max - y_min
-                            
-                            annotation_info = {
-                                "id": annotation_id_counter,
-                                "image_id": image_id_counter,
-                                "category_id": category_id,
-                                "bbox": [x_min, y_min, width_bbox, height_bbox],
-                                "area": width_bbox * height_bbox,
-                                "iscrowd": 0,
-                                "segmentation": []
-                            }
-                            coco_format['annotations'].append(annotation_info)
-                            annotation_id_counter += 1
-
-            except (IOError, json.JSONDecodeError, KeyError) as e:
-                print(f"Warning: Could not process label file {label_file}. Skipping. Error: {e}")
-                continue
-        
-        image_id_counter += 1
-
-    with open(output_file, 'w') as f:
-        json.dump(coco_format, f, indent=4)
-    
-    print(f"\nConversion complete. COCO annotations saved to {output_file}")
-    print(f"Summary: {len(coco_format['images'])} images, {len(coco_format['annotations'])} annotations, {len(coco_format['categories'])} categories.")
-
-
-if __name__ == '__main__':
-    root_path = os.getcwd() 
-    dataset_root = os.path.join(root_path, 'dataset')
-    output_json_file = os.path.join(dataset_root, 'coco_annotations.json')
-    
-    convert_to_coco(dataset_root, output_json_file)
+if __name__ == "__main__":
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--json", required=True)
+    ap.add_argument("--img-root", required=True)  # 참조만, 경로 검증용으로 남겨둠
+    ap.add_argument("--out-dir", required=True)
+    args = ap.parse_args()
+    convert(args.json, args.img_root, args.out_dir)
