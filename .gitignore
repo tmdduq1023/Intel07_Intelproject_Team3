@@ -429,5 +429,11 @@ $RECYCLE.BIN/
 
 # dataset 무시
 dataset/
+dataset_preprocessed/
+
+# pth 무시
+*.pth
+
+coco_skin_dataset.json
 
 # End of https://www.toptal.com/developers/gitignore/api/c,c++,python,linux,macos,windows,eclipse,visualstudiocode,cmake,ninja

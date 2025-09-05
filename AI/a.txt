@@ -1,0 +1,215 @@
+l_perocular_wrinkle: 0.0000
+
+- l_perocular_wrinkle_Ra: 0.0000
+
+- l_perocular_wrinkle_Rmax: 0.0000
+
+- l_perocular_wrinkle_Rt: 0.0000
+
+- l_perocular_wrinkle_Rz=Rtm: 0.0000
+
+- l_perocular_wrinkle_Rp: 0.0000
+
+- l_perocular_wrinkle_Rv: 0.0000
+
+- l_perocular_wrinkle_Rq: 0.0000
+
+- l_perocular_wrinkle_R3z: 0.0000
+
+- lip_dryness: 0.0000
+
+- r_perocular_wrinkle: 0.0000
+
+- r_perocular_wrinkle_Ra: 0.0000
+
+- r_perocular_wrinkle_Rmax: 0.0000
+
+- r_perocular_wrinkle_Rt: 0.0000
+
+- r_perocular_wrinkle_Rz=Rtm: 0.0000
+
+- r_perocular_wrinkle_Rp: 0.0000
+
+- r_perocular_wrinkle_Rv: 0.0000
+
+- r_perocular_wrinkle_Rq: 0.0000
+
+- r_perocular_wrinkle_R3z: 0.0000
+
+- l_cheek_pore: 0.0000
+
+- l_cheek_pigmentation: 0.0000
+
+- l_cheek_moisture: 0.0000
+
+- l_cheek_elasticity_R0: 0.0000
+
+- l_cheek_elasticity_R1: 0.0000
+
+- l_cheek_elasticity_R2: 0.0000
+
+- l_cheek_elasticity_R3: 0.0000
+
+- l_cheek_elasticity_R4: 0.0000
+
+- l_cheek_elasticity_R5: 0.0000
+
+- l_cheek_elasticity_R6: 0.0000
+
+- l_cheek_elasticity_R7: 0.0000
+
+- l_cheek_elasticity_R8: 0.0000
+
+- l_cheek_elasticity_R9: 0.0000
+
+- l_cheek_elasticity_Q0: 0.0000
+
+- l_cheek_elasticity_Q1: 0.0000
+
+- l_cheek_elasticity_Q2: 0.0000
+
+- l_cheek_elasticity_Q3: 0.0000
+
+- forehead_pigmentation: 0.0000
+
+- forehead_wrinkle: 3.0000
+
+- forehead_moisture: 62.0000
+
+- forehead_elasticity_R0: 0.4750
+
+- forehead_elasticity_R1: 0.1580
+
+- forehead_elasticity_R2: 0.6670
+
+- forehead_elasticity_R3: 0.5170
+
+- forehead_elasticity_R4: 0.1790
+
+- forehead_elasticity_R5: 0.2970
+
+- forehead_elasticity_R6: 0.2370
+
+- forehead_elasticity_R7: 0.2400
+
+- forehead_elasticity_R8: 0.3170
+
+- forehead_elasticity_R9: 0.0420
+
+- forehead_elasticity_Q0: 95.0000
+
+- forehead_elasticity_Q1: 0.5640
+
+- forehead_elasticity_Q2: 0.3340
+
+- forehead_elasticity_Q3: 0.2300
+
+- r_cheek_pore: 0.0000
+
+- r_cheek_pigmentation: 0.0000
+
+- r_cheek_moisture: 0.0000
+
+- r_cheek_elasticity_R0: 0.0000
+
+- r_cheek_elasticity_R1: 0.0000
+
+- r_cheek_elasticity_R2: 0.0000
+
+- r_cheek_elasticity_R3: 0.0000
+
+- r_cheek_elasticity_R4: 0.0000
+
+- r_cheek_elasticity_R5: 0.0000
+
+- r_cheek_elasticity_R6: 0.0000
+
+- r_cheek_elasticity_R7: 0.0000
+
+- r_cheek_elasticity_R8: 0.0000
+
+- r_cheek_elasticity_R9: 0.0000
+
+- r_cheek_elasticity_Q0: 0.0000
+
+- r_cheek_elasticity_Q1: 0.0000
+
+- r_cheek_elasticity_Q2: 0.0000
+
+- r_cheek_elasticity_Q3: 0.0000
+
+- pigmentation_count: 0.0000
+
+- glabellus_wrinkle: 0.0000
+
+- acne_0_points_0: 0.0000
+
+- acne_0_points_1: 0.0000
+
+- acne_1_points_0: 0.0000
+
+- acne_1_points_1: 0.0000
+
+- acne_2_points_0: 0.0000
+
+- acne_2_points_1: 0.0000
+
+- acne_3_points_0: 0.0000
+
+- acne_3_points_1: 0.0000
+
+- chin_sagging: 0.0000
+
+- chin_moisture: 0.0000
+
+- chin_elasticity_R0: 0.0000
+
+- chin_elasticity_R1: 0.0000
+
+- chin_elasticity_R2: 0.0000
+
+- chin_elasticity_R3: 0.0000
+
+- chin_elasticity_R4: 0.0000
+
+- chin_elasticity_R5: 0.0000
+
+- chin_elasticity_R6: 0.0000
+
+- chin_elasticity_R7: 0.0000
+
+- chin_elasticity_R8: 0.0000
+
+- chin_elasticity_R9: 0.0000
+
+- chin_elasticity_Q0: 0.0000
+
+- chin_elasticity_Q1: 0.0000
+
+- chin_elasticity_Q2: 0.0000
+
+- chin_elasticity_Q3: 0.0000
+
+- acne_4_points_0: 0.0000
+
+- acne_4_points_1: 0.0000
+
+- acne_5_points_0: 0.0000
+
+- acne_5_points_1: 0.0000
+
+- acne_6_points_0: 0.0000
+
+- acne_6_points_1: 0.0000
+
+- acne_7_points_0: 0.0000
+
+- acne_7_points_1: 0.0000
+
+- acne_8_points_0: 0.0000
+
+- acne_8_points_1: 0.0000
+
+- acne_9_points_0: 0.0000
+
+- acne_9_points_1: 0.0000
