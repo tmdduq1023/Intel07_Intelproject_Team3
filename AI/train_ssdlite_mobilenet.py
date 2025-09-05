@@ -4,17 +4,17 @@ import torch
 from torch.utils.data import DataLoader, Subset
 from tqdm import tqdm
 
-# Import utilities from our utils.py file
+
 from utils import get_ssdlite_model, TransformedCocoDetection, collate_fn
 
-# --- Main Training Logic ---
+
 def main():
-    # --- Hyperparameters and Setup ---
+    
     DEVICE = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
     print(f"Using device: {DEVICE}")
 
-    NUM_CLASSES = 13 # 12 categories + 1 background
-    BATCH_SIZE = 16 # Can often use a larger batch size with lighter models
+    NUM_CLASSES = 13 
+    BATCH_SIZE = 16 
     NUM_EPOCHS = 10
     LEARNING_RATE = 0.005
     
@@ -23,7 +23,7 @@ def main():
     IMAGE_DIR = os.path.join(DATASET_ROOT, 'Training', 'origin_data')
     ANNOTATION_FILE = os.path.join(DATASET_ROOT, 'coco_annotations.json')
 
-    # --- Dataset and DataLoader ---
+    
     dataset = TransformedCocoDetection(root=IMAGE_DIR, annFile=ANNOTATION_FILE, train=True)
     dataset_val = TransformedCocoDetection(root=IMAGE_DIR, annFile=ANNOTATION_FILE, train=False)
 
@@ -38,7 +38,7 @@ def main():
     data_loader_train = DataLoader(dataset_train, batch_size=BATCH_SIZE, shuffle=True, num_workers=2, collate_fn=collate_fn)
     data_loader_val = DataLoader(dataset_val, batch_size=1, shuffle=False, num_workers=2, collate_fn=collate_fn)
 
-    # --- Model, Optimizer, etc. ---
+    
     model = get_ssdlite_model(NUM_CLASSES)
     model.to(DEVICE)
 
@@ -46,7 +46,7 @@ def main():
     optimizer = torch.optim.SGD(params, lr=LEARNING_RATE, momentum=0.9, weight_decay=0.0005)
     lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=3, gamma=0.1)
 
-    # --- Training Loop ---
+    
     for epoch in range(NUM_EPOCHS):
         model.train()
         epoch_loss = 0
@@ -69,7 +69,7 @@ def main():
         lr_scheduler.step()
         print(f"Epoch {epoch+1} Training Loss: {epoch_loss / len(data_loader_train)}")
 
-        # --- Validation Loop (simplified) ---
+        
         model.eval()
         with torch.no_grad():
             pbar_val = tqdm(data_loader_val, desc=f"Epoch {epoch+1}/{NUM_EPOCHS} [Validation]")

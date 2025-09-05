@@ -7,7 +7,7 @@ from datetime import datetime
 from torch.utils.data import DataLoader, Subset
 from tqdm import tqdm
 
-# Import utilities from our utils.py file
+
 from utils import get_fasterrcnn_model, get_ssdlite_model, TransformedCocoDetection, collate_fn
 from pycocotools.coco import COCO
 from pycocotools.cocoeval import COCOeval
@@ -16,7 +16,7 @@ def format_predictions_for_coco(image_ids, predictions):
     """Formats model predictions into the list of dicts that COCOeval expects."""
     coco_results = []
     for i, prediction in enumerate(predictions):
-        # Ensure image_id is a scalar
+        
         if prediction['boxes'].nelement() == 0:
             continue
         image_id = image_ids[i].item() if torch.is_tensor(image_ids[i]) else image_ids[i]
@@ -73,7 +73,7 @@ def main(args):
     DEVICE = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
     print(f"Using device: {DEVICE}")
 
-    # --- Load Model ---
+    
     NUM_CLASSES = 13
     if args.model_type == 'faster_rcnn':
         model = get_fasterrcnn_model(NUM_CLASSES)
@@ -91,11 +91,11 @@ def main(args):
         print(f"Error: Model file not found at {args.model_path}")
         return
 
-    # --- Dataset and DataLoader ---
+    
     print("--- WARNING: For a true performance measure, use a separate, unseen test set. ---")
     dataset = TransformedCocoDetection(root=args.data_path, annFile=args.ann_file, train=False)
     
-    # Use the full dataset for evaluation unless a subset is specified
+    
     if args.test_all:
         dataset_test = dataset
     else:
@@ -108,7 +108,7 @@ def main(args):
     data_loader_test = DataLoader(dataset_test, batch_size=4, shuffle=False, num_workers=2, collate_fn=collate_fn)
     print(f"Evaluation dataset size: {len(dataset_test)}")
 
-    # --- Evaluation Loop ---
+    
     coco_gt = dataset.coco
     results = []
     
@@ -127,14 +127,14 @@ def main(args):
         print("No predictions were made. Cannot evaluate.")
         return
 
-    # --- Calculate, Print, and Save Metrics ---
+    
     coco_dt = coco_gt.loadRes(results)
     coco_eval = COCOeval(coco_gt, coco_dt, 'bbox')
     coco_eval.evaluate()
     coco_eval.accumulate()
     coco_eval.summarize()
     
-    # Save results to CSV
+    
     save_results_to_csv(args.output_csv, args.model_type, args.model_path, coco_eval.stats)
 
     print("--- Evaluation Finished ---")

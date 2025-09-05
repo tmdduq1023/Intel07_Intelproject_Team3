@@ -52,25 +52,20 @@ def convert_to_coco(dataset_path, output_file):
     origin_data_path = os.path.join(training_path, 'origin_data')
     labeled_data_path = os.path.join(training_path, 'labeled_data')
 
-    # Find all image files first
     image_files = glob.glob(os.path.join(origin_data_path, '**', '*.jpg'), recursive=True)
     
     print(f"Found {len(image_files)} images to process.")
 
     for image_path in tqdm(image_files, desc="Processing images"):
-        # Extract relative path to construct labeled data path
         relative_image_path = os.path.relpath(image_path, origin_data_path)
         
-        # Get image dimensions from the first corresponding JSON file
         json_base_path = os.path.join(labeled_data_path, os.path.splitext(relative_image_path)[0])
         
-        # Find all corresponding json files
         label_files = glob.glob(f"{json_base_path}*.json")
         
         if not label_files:
             continue
 
-        # Read the first json file to get image width and height
         try:
             width, height = -1, -1
             for lf in label_files:
@@ -80,14 +75,12 @@ def convert_to_coco(dataset_path, output_file):
                         temp_data['images'].get('width') and
                         temp_data['images'].get('height') and
                         temp_data['images'].get('bbox')):
-                        # Heuristic: find the bbox that covers the whole image to get dimensions
                         if temp_data['images']['bbox'][0] == 0 and temp_data['images']['bbox'][1] == 0:
                              width = temp_data['images']['width']
                              height = temp_data['images']['height']
                              break
             
             if width == -1 or height == -1:
-                # Fallback if no full-image bbox is found in a clean file
                 with open(label_files[0], 'r') as f:
                     first_label_data = json.load(f)
                     if first_label_data.get('images'):
@@ -102,7 +95,6 @@ def convert_to_coco(dataset_path, output_file):
             print(f"Warning: Could not read or parse base label file for {image_path}. Skipping. Error: {e}")
             continue
 
-        # Add image info to COCO structure
         image_info = {
             "id": image_id_counter,
             "width": width,
@@ -111,7 +103,6 @@ def convert_to_coco(dataset_path, output_file):
         }
         coco_format["images"].append(image_info)
 
-        # Process each label file for this image
         for label_file in label_files:
             try:
                 with open(label_file, 'r') as f:
@@ -121,7 +112,6 @@ def convert_to_coco(dataset_path, output_file):
                 if not annotations:
                     continue
                 
-                # Iterate through annotations in the current json file
                 for category_name, value in annotations.items():
                     if value is not None and value != 0:
                         
@@ -160,7 +150,6 @@ def convert_to_coco(dataset_path, output_file):
         
         image_id_counter += 1
 
-    # Save the final COCO JSON file
     with open(output_file, 'w') as f:
         json.dump(coco_format, f, indent=4)
     

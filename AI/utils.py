@@ -6,12 +6,12 @@ import torchvision.transforms.functional as F
 from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
 from torchvision.models.detection.ssdlite import SSDLiteClassificationHead
 
-# --- Utility Functions ---
+
 
 def collate_fn(batch):
     return tuple(zip(*batch))
 
-# --- Dataset Class ---
+
 
 class TransformedCocoDetection(CocoDetection):
     """A wrapper for CocoDetection to apply transforms to both image and target."""
@@ -26,15 +26,15 @@ class TransformedCocoDetection(CocoDetection):
         image = F.to_tensor(img)
 
         formatted_target = {}
-        # Ensure target is a list of dicts
+        
         if not isinstance(target, list):
             target = [target]
 
-        # Filter out annotations with no bbox
+        
         target = [obj for obj in target if 'bbox' in obj]
 
         boxes = torch.as_tensor([obj['bbox'] for obj in target], dtype=torch.float32)
-        # COCO bbox format is [x, y, width, height], convert to [x1, y1, x2, y2]
+        
         boxes[:, 2] = boxes[:, 0] + boxes[:, 2]
         boxes[:, 3] = boxes[:, 1] + boxes[:, 3]
         formatted_target["boxes"] = boxes
@@ -51,7 +51,7 @@ class TransformedCocoDetection(CocoDetection):
 
         return image, formatted_target
 
-# --- Model Definitions ---
+
 
 def get_fasterrcnn_model(num_classes):
     """
@@ -67,7 +67,7 @@ def get_ssdlite_model(num_classes):
     Loads an SSDLite MobileNetV3 model with a custom classifier head.
     This is the correct way to instantiate a model for transfer learning.
     """
-    # Load a model with a pre-trained backbone, but a fresh head for our number of classes.
+    
     model = torchvision.models.detection.ssdlite320_mobilenet_v3_large(
         weights=None, 
         weights_backbone="DEFAULT", 

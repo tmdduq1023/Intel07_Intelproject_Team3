@@ -84,7 +84,7 @@ class SkinAnalysisModel(nn.Module):
 
 def main(args):
     transform = transforms.Compose([
-        # transforms.Resize((224, 224)), 
+        
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     ])
@@ -138,13 +138,13 @@ def main(args):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Train a skin analysis model.')
-    # <<< 중요: 기본 경로를 전처리된 데이터셋으로 변경
-    # 정확한 파일 트리 구조 필요
+    
+    
     parser.add_argument('--json_path', type=str, default='../dataset_preprocessed/coco_skin_dataset.json', help='Path to the preprocessed COCO JSON dataset.')
     parser.add_argument('--model_save_path', type=str, default='skin_analysis_model.pth', help='Path to save the trained model.')
-    parser.add_argument('--learning_rate', type=float, default=1e-4, help='Learning rate.')
-    parser.add_argument('--batch_size', type=int, default=64, help='Batch size.')
-    parser.add_argument('--epochs', type=int, default=25, help='Number of epochs to train.')
+    parser.add_argument('--learning_rate', type=float, default=1e-3, help='Learning rate.')
+    parser.add_argument('--batch_size', type=int, default=32, help='Batch size.')
+    parser.add_argument('--epochs', type=int, default=5, help='Number of epochs to train.')
 
     args = parser.parse_args()
     main(args)

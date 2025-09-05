@@ -25,7 +25,7 @@ class SkinDataset(Dataset):
         self.categories = {cat['id']: cat['name'] for cat in self.coco_data['categories']}
         self.num_categories = len(self.categories)
 
-        # Create a mapping from image_id to annotations
+        
         self.image_id_to_annotations = {}
         for ann in self.annotations:
             image_id = ann['image_id']
@@ -33,8 +33,8 @@ class SkinDataset(Dataset):
                 self.image_id_to_annotations[image_id] = []
             self.image_id_to_annotations[image_id].append(ann)
 
-        # Filter out images that don't have a full set of annotations
-        # This is a simplified approach. A more robust way would be to handle missing values.
+        
+        
         self.valid_images = []
         for img_info in self.images:
             if img_info['id'] in self.image_id_to_annotations:
@@ -55,18 +55,18 @@ class SkinDataset(Dataset):
             image = Image.open(img_path).convert('RGB')
         except FileNotFoundError:
             print(f"Warning: Image file not found at {img_path}. Returning a dummy image.")
-            image = Image.new('RGB', (224, 224), color = 'red') # Return a placeholder
+            image = Image.new('RGB', (224, 224), color = 'red') 
 
         if self.transform:
             image = self.transform(image)
 
-        # Create a target tensor for all possible categories
+        
         target = torch.zeros(self.num_categories, dtype=torch.float32)
         annotations = self.image_id_to_annotations.get(img_info['id'], [])
         
         for ann in annotations:
             cat_id = ann['category_id']
-            # The category IDs are 1-based, so subtract 1 for 0-based tensor indexing
+            
             target_idx = cat_id - 1 
             if 0 <= target_idx < self.num_categories:
                 target[target_idx] = float(ann['value'])
@@ -76,10 +76,10 @@ class SkinDataset(Dataset):
 class SkinAnalysisModel(nn.Module):
     def __init__(self, num_outputs):
         super(SkinAnalysisModel, self).__init__()
-        # Load a pre-trained ResNet50 model
+        
         self.resnet = models.resnet50(weights=models.ResNet50_Weights.DEFAULT)
         
-        # Replace the final fully connected layer
+        
         num_ftrs = self.resnet.fc.in_features
         self.resnet.fc = nn.Sequential(
             nn.Linear(num_ftrs, 512),
@@ -92,17 +92,17 @@ class SkinAnalysisModel(nn.Module):
         return self.resnet(x)
 
 def main(args):
-    # Data transformations
+    
     transform = transforms.Compose([
         transforms.Resize((224, 224)),
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     ])
 
-    # Create dataset
+    
     full_dataset = SkinDataset(json_path=args.json_path, transform=transform)
     
-    # Split dataset into training and validation
+    
     train_size = int(0.8 * len(full_dataset))
     val_size = len(full_dataset) - train_size
     train_dataset, val_dataset = torch.utils.data.random_split(full_dataset, [train_size, val_size])
@@ -110,16 +110,16 @@ def main(args):
     print(f"Training set size: {len(train_dataset)}")
     print(f"Validation set size: {len(val_dataset)}")
 
-    # train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=8)
-    #val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False, num_workers=8, pin_memory=True)
+    
+    
 
     train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=24, pin_memory=True)
     val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False, num_workers=24)
-    # # Create data loaders
-    # train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=4)
-    # val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False, num_workers=4)
+    
+    
+    
 
-    # Initialize model, loss, and optimizer
+    
     num_classes = full_dataset.num_categories
     model = SkinAnalysisModel(num_outputs=num_classes)
     
@@ -130,7 +130,7 @@ def main(args):
     criterion = nn.MSELoss()
     optimizer = optim.AdamW(model.parameters(), lr=args.learning_rate)
 
-    # Training loop
+    
     print("Starting training...")
     for epoch in range(args.epochs):
         model.train()
@@ -149,7 +149,7 @@ def main(args):
             running_loss += loss.item()
             train_bar.set_postfix(loss=running_loss / (train_bar.n + 1))
 
-        # Validation loop
+        
         model.eval()
         val_loss = 0.0
         with torch.no_grad():
@@ -163,7 +163,7 @@ def main(args):
         
         print(f'Epoch [{epoch+1}/{args.epochs}], Validation Loss: {val_loss / len(val_loader):.4f}')
 
-    # Save the trained model
+    
     torch.save(model.state_dict(), args.model_save_path)
     print(f"Training finished. Model saved to {args.model_save_path}")
 

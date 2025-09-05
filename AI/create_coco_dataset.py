@@ -12,7 +12,7 @@ def create_coco_dataset():
             "version": "1.0",
             "year": 2025,
             "contributor": "Bbang",
-            "date_created": "2025/09/03"
+            "date_created": "2025/09/04"
         },
         "licenses": [],
         "images": [],
@@ -43,7 +43,7 @@ def create_coco_dataset():
         if current_value is None:
             return
 
-        if isinstance(current_value, (int, float)): # Numerical scalar value
+        if isinstance(current_value, (int, float)): 
             cat_id = get_category_id(current_key_prefix)
             annotation_entry = {
                 "id": annotation_id_counter,
@@ -56,9 +56,8 @@ def create_coco_dataset():
             }
             coco_output["annotations"].append(annotation_entry)
             annotation_id_counter += 1
-        elif isinstance(current_value, str): # String value
+        elif isinstance(current_value, str): 
             try:
-                # Try to convert string to float
                 float_value = float(current_value)
                 cat_id = get_category_id(current_key_prefix)
                 annotation_entry = {
@@ -73,16 +72,15 @@ def create_coco_dataset():
                 coco_output["annotations"].append(annotation_entry)
                 annotation_id_counter += 1
             except ValueError:
-                # If string cannot be converted to float, skip it
                 print(f"Skipping non-numerical string value: {current_key_prefix}: {current_value}")
-                pass # Do nothing, effectively skipping this annotation
-        elif isinstance(current_value, bool): # Boolean value (treat as 0 or 1)
+                pass 
+        elif isinstance(current_value, bool): 
             cat_id = get_category_id(current_key_prefix)
             annotation_entry = {
                 "id": annotation_id_counter,
                 "image_id": image_id,
                 "category_id": cat_id,
-                "value": float(current_value), # Convert bool to float (True=1.0, False=0.0)
+                "value": float(current_value), 
                 "area": 0,
                 "bbox": [],
                 "iscrowd": 0
@@ -96,7 +94,8 @@ def create_coco_dataset():
             for sub_key, sub_value in current_value.items():
                 process_and_add_annotations(f"{current_key_prefix}_{sub_key}", sub_value, image_id)
 
-    for data_type in ["Training", "Validation", "test"]:
+    for data_type in ["Training", "Validation"]:
+    
         search_path = os.path.join(base_dir, data_type, "**", "*.json")
         for json_file in glob.glob(search_path, recursive=True):
             try:
@@ -112,21 +111,21 @@ def create_coco_dataset():
                 continue
 
             image_filename = data.get("info", {}).get("filename")
-            # Create a relative path for the image
+            
             relative_image_path = ""
             path_parts = json_file.split(os.sep)
             try:
                 dataset_index = path_parts.index("dataset")
-                # We want the path relative to the project root, so we include 'dataset'
+                
                 relative_image_path = os.path.join(*path_parts[dataset_index:], "..", image_filename)
-                # Normalize the path to handle ".."
+                
                 relative_image_path = os.path.normpath(relative_image_path)
-                # Fix the path to point to origin_data instead of labeled_data
-                # Based on user's clarification, it's always 'origin_data'
+                
+                
                 relative_image_path = relative_image_path.replace("labeled_data", "origin_data")
             except ValueError:
-                # If 'dataset' is not in the path, we can't create a relative path
-                # This case should not happen with the current project structure
+                
+                
                 relative_image_path = image_filename
 
 
