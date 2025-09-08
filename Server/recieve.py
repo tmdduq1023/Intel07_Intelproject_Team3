@@ -1,3 +1,10 @@
+"""
+라즈베리파이 동작
+
+receive()함수는 연산 노드로부터 수신하는 코드.
+연산 노드로부터 받은 json을 파싱해서 uart에 써줘
+"""
+
 from flask import Flask, request, jsonify
 import serial
 import threading
@@ -6,12 +13,13 @@ ser = serial.Serial("/dev/serial0", baudrate=9600, timeout=1)
 ser_lock = threading.Lock()
 app = Flask(__name__)
 
+
 @app.route("/receive", methods=["POST"])
 def receive():
     payload = request.get_json(silent=True)
     if payload is None:
-        return jsonify({'error': 'invalid json'}), 400
-    
+        return jsonify({"error": "invalid json"}), 400
+
     try:
         parts = [
             payload["forehead"]["moisture"],
@@ -29,22 +37,24 @@ def receive():
             payload["chin"]["elasticity"],
             payload["lib"]["elasticity"],
         ]
-        print(parts)
-        
+        # print(parts)
+
         data = "@".join(str(p) for p in parts)
         uart_write(data)
-        return jsonify({'status': 'sent'}), 200
-        
+        return jsonify({"status": "sent"}), 200
+
     except (TypeError, KeyError) as e:
-        return jsonify({'error': f'missing field: {e}'}), 400
+        return jsonify({"error": f"missing field: {e}"}), 400
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return jsonify({"error": str(e)}), 500
+
 
 def uart_write(data: str):
     if not isinstance(data, str):
         data = str(data)
     with ser_lock:
         ser.write(data.encode("utf-8"))
+
 
 if __name__ == "__main__":
     # 모든 인터페이스에서 접근 가능하도록 설정
