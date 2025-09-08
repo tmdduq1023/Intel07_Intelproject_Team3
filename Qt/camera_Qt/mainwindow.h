@@ -55,6 +55,7 @@ private:
     void stopCamera();
     void uploadImageToServer(const QImage& image);
     void loadServerConfig();
+    void setupUILayout();
 };
 
 #endif // MAINWINDOW_H

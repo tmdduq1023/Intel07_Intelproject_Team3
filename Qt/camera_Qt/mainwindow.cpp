@@ -21,6 +21,9 @@ MainWindow::MainWindow(QWidget *parent)
 {
     ui->setupUi(this);
 
+    // 레이아웃 설정 (UI 파일에 레이아웃이 없는 경우)
+    setupUILayout();
+
     // QGraphicsView 설정
     scene = std::make_unique<QGraphicsScene>(this);
     ui->camViewer->setScene(scene.get());
@@ -322,4 +325,47 @@ void MainWindow::displayCameraError()
     if (camera) {
         QMessageBox::critical(this, "Camera Error", camera->errorString());
     }
+}
+
+void MainWindow::setupUILayout()
+{
+    // 기존 UI가 레이아웃이 없는 경우, 코드로 추가
+
+    // 메인 레이아웃 생성
+    QVBoxLayout *mainLayout = new QVBoxLayout();
+    mainLayout->setContentsMargins(5, 5, 5, 5);
+    mainLayout->setSpacing(5);
+
+    // 카메라 뷰어 추가 (확장 가능하게)
+    ui->camViewer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    mainLayout->addWidget(ui->camViewer, 1);  // stretch factor 1
+
+    // 버튼 레이아웃 생성
+    QHBoxLayout *buttonLayout = new QHBoxLayout();
+    buttonLayout->setSpacing(10);
+
+    // 버튼들을 중앙에 배치
+    buttonLayout->addStretch();  // 왼쪽 여백
+
+    // 버튼 크기 정책 설정
+    ui->camStartButton->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
+    ui->camStartButton->setMinimumSize(120, 35);
+    ui->camStartButton->setMaximumSize(200, 50);
+    buttonLayout->addWidget(ui->camStartButton);
+
+    ui->snapShotButton->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
+    ui->snapShotButton->setMinimumSize(120, 35);
+    ui->snapShotButton->setMaximumSize(200, 50);
+    buttonLayout->addWidget(ui->snapShotButton);
+
+    buttonLayout->addStretch();  // 오른쪽 여백
+
+    // 버튼 레이아웃을 메인 레이아웃에 추가
+    mainLayout->addLayout(buttonLayout);
+
+    // centralwidget에 레이아웃 설정
+    ui->centralwidget->setLayout(mainLayout);
+
+    // 윈도우 최소 크기 설정
+    setMinimumSize(640, 480);
 }
