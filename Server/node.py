@@ -1,9 +1,14 @@
 import requests
+from flask import Flask, request, jsonify
+import os
+from werkzeug.utils import secure_filename
 
 # 라즈베리파이의 실제 IP 주소로 변경
-DESTINATION_URL = "http://192.168.0.90:/receive"  # http:// 추가 및 포트 5000
+DESTINATION_URL = "http://192.168.0.90:5000/receive"  # http:// 추가 및 포트 5000
+app = Flask(__name__)
 
-def send_data(data: dict) -> None:
+
+def send_json(data: dict) -> None:
     try:
         response = requests.post(
             DESTINATION_URL,
@@ -19,14 +24,49 @@ def send_data(data: dict) -> None:
     except Exception as e:
         print(f"오류 발생: {e}")
 
+
+@app.route("/upload", methods=["POST"])
+def recieve_image():
+    if "image" not in request.files:
+        return jsonify({"error": "No image part"}), 400
+
+    file = request.files["image"]
+    if file.filename == "":
+        return jsonify({"error": "No selected file"}), 400
+
+    if file:
+        # uploads 디렉터리 생성
+        upload_dir = "uploads"
+        if not os.path.exists(upload_dir):
+            os.makedirs(upload_dir)
+
+        filename = secure_filename(file.filename)
+        file.save(os.path.join(upload_dir, filename))
+
+        # Qt에서 기대하는 JSON 응답
+        return (
+            jsonify(
+                {
+                    "status": "success",
+                    "message": "Image uploaded successfully!",
+                    "filename": filename,
+                }
+            ),
+            200,
+        )
+
+    return jsonify({"error": "Upload failed"}), 500
+
+
 # 테스트 데이터
 test_data = {
     "forehead": {"moisture": 70, "elasticity": 80, "pigmentation": 60},
     "l_check": {"moisture": 75, "elasticity": 85, "pigmentation": 65, "pore": 70},
     "r_check": {"moisture": 72, "elasticity": 82, "pigmentation": 62, "pore": 68},
     "chin": {"moisture": 68, "elasticity": 78},
-    "lib": {"elasticity": 90}
+    "lib": {"elasticity": 90},
 }
 
 if __name__ == "__main__":
-    send_data(test_data)
+    # send_json(test_data)
+    app.run(host="0.0.0.0", port=5000, debug=True)

@@ -436,4 +436,5 @@ dataset_preprocessed/
 
 coco_skin_dataset.json
 
+*.jpg
 # End of https://www.toptal.com/developers/gitignore/api/c,c++,python,linux,macos,windows,eclipse,visualstudiocode,cmake,ninja
