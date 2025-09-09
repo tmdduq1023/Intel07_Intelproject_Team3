@@ -1,4 +1,4 @@
-QT       += core gui widgets multimedia multimediawidgets network
+QT       += core gui widgets multimedia multimediawidgets network sql
 
 greaterThan(QT_MAJOR_VERSION, 4): QT += widgets
 
@@ -10,10 +10,14 @@ CONFIG += c++17
 
 SOURCES += \
     main.cpp \
-    mainwindow.cpp
+    mainwindow.cpp \
+    nameinputdialog.cpp \
+    databasemanager.cpp
 
 HEADERS += \
-    mainwindow.h
+    mainwindow.h \
+    nameinputdialog.h \
+    databasemanager.h
 
 FORMS += \
     mainwindow.ui

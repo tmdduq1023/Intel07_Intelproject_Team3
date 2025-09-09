@@ -14,6 +14,8 @@
 #include <QtMultimedia/QCameraImageCapture>
 #include <QtMultimediaWidgets/QCameraViewfinder>
 #include <QtMultimediaWidgets/QGraphicsVideoItem>
+#include "nameinputdialog.h"
+#include "databasemanager.h"
 
 QT_BEGIN_NAMESPACE
 namespace Ui { class MainWindow; }
@@ -34,6 +36,8 @@ private slots:
     void displayCameraError();
     void onUploadFinished(QNetworkReply* reply);
     void onUploadProgress(qint64 bytesSent, qint64 bytesTotal);
+    void showNameInputDialog();
+    void onNewUserSession();
 
 private:
     Ui::MainWindow *ui;
@@ -50,12 +54,19 @@ private:
     int serverPort;
 
     bool isCameraRunning;
+    QString currentUserName;
+    int currentSessionId;
+    
     void setupCamera();
     void startCamera();
     void stopCamera();
     void uploadImageToServer(const QImage& image);
     void loadServerConfig();
     void setupUILayout();
+    void initializeDatabase();
+    void updateUIForUser();
+    QString generatePhotoFileName() const;
+    void savePhotoToDatabase(const QString& fileName, const QString& filePath);
 };
 
 #endif // MAINWINDOW_H

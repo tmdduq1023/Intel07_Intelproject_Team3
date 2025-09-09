@@ -13,11 +13,17 @@
 #include <QJsonObject>
 #include <QSettings>
 #include <QProgressDialog>
+#include <QTimer>
+#include <QLabel>
+#include <QFileInfo>
+#include <QStandardPaths>
+#include <QDir>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
     , ui(new Ui::MainWindow)
     , isCameraRunning(false)
+    , currentSessionId(-1)
 {
     ui->setupUi(this);
 
@@ -48,6 +54,12 @@ MainWindow::MainWindow(QWidget *parent)
     ui->snapShotButton->setText("Upload Snapshot");
     ui->snapShotButton->setEnabled(false);
 
+    // 데이터베이스 초기화
+    initializeDatabase();
+    
+    // 이름 입력 다이얼로그 표시 (약간의 지연 후)
+    QTimer::singleShot(100, this, &MainWindow::showNameInputDialog);
+    
     // 상태바에 서버 정보 표시
     ui->statusbar->showMessage(QString("Server: %1").arg(serverUrl));
 }
@@ -184,6 +196,20 @@ void MainWindow::on_snapShotButton_clicked()
 void MainWindow::processCapturedImage(int requestId, const QImage& img)
 {
     Q_UNUSED(requestId);
+    
+    // 사진 파일명 생성
+    QString fileName = generatePhotoFileName();
+    
+    // 사진을 로컬에 임시 저장
+    QString tempPath = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
+    QDir().mkpath(tempPath);
+    QString filePath = tempPath + "/" + fileName;
+    
+    if (img.save(filePath, "JPG", 90)) {
+        // 데이터베이스에 저장
+        savePhotoToDatabase(fileName, filePath);
+        qDebug() << "Photo saved locally:" << filePath;
+    }
 
     // 서버로 이미지 전송
     uploadImageToServer(img);
@@ -368,4 +394,137 @@ void MainWindow::setupUILayout()
 
     // 윈도우 최소 크기 설정
     setMinimumSize(640, 480);
+}
+
+void MainWindow::initializeDatabase()
+{
+    DatabaseManager& dbManager = DatabaseManager::instance();
+    if (!dbManager.initializeDatabase()) {
+        QMessageBox::critical(this, "데이터베이스 오류", 
+            "데이터베이스를 초기화할 수 없습니다.\n애플리케이션을 종료합니다.");
+        QApplication::quit();
+        return;
+    }
+    
+    qDebug() << "Database initialized successfully";
+}
+
+void MainWindow::showNameInputDialog()
+{
+    NameInputDialog dialog(this);
+    
+    if (dialog.exec() == QDialog::Accepted) {
+        currentUserName = dialog.getUserName();
+        
+        // 사용자 세션 생성
+        DatabaseManager& dbManager = DatabaseManager::instance();
+        currentSessionId = dbManager.createUserSession(currentUserName);
+        
+        if (currentSessionId != -1) {
+            updateUIForUser();
+            qDebug() << "User session created for:" << currentUserName;
+        } else {
+            QMessageBox::critical(this, "데이터베이스 오류", 
+                "사용자 세션을 생성할 수 없습니다.");
+        }
+    } else {
+        // 사용자가 취소한 경우 애플리케이션 종료
+        QApplication::quit();
+    }
+}
+
+void MainWindow::onNewUserSession()
+{
+    // 현재 세션 종료
+    if (currentSessionId != -1) {
+        DatabaseManager::instance().closeUserSession(currentSessionId);
+    }
+    
+    // 카메라 중지
+    if (isCameraRunning) {
+        stopCamera();
+    }
+    
+    // 새로운 사용자 입력 다이얼로그 표시
+    showNameInputDialog();
+}
+
+void MainWindow::updateUIForUser()
+{
+    // 윈도우 제목 업데이트
+    setWindowTitle(QString("피부 분석 시스템 - %1").arg(currentUserName));
+    
+    // 상태바 메시지 업데이트
+    ui->statusbar->showMessage(QString("사용자: %1 | Server: %2").arg(currentUserName, serverUrl));
+    
+    // 새 사용자 버튼을 메뉴에 추가 (메뉴가 있는 경우)
+    if (ui->menuCAM) {
+        ui->menuCAM->clear();
+        QAction *newUserAction = ui->menuCAM->addAction("새 사용자");
+        connect(newUserAction, &QAction::triggered, this, &MainWindow::onNewUserSession);
+        
+        ui->menuCAM->addSeparator();
+        
+        // 통계 정보 표시 액션
+        QAction *statsAction = ui->menuCAM->addAction("통계 정보");
+        connect(statsAction, &QAction::triggered, [this]() {
+            DatabaseManager& dbManager = DatabaseManager::instance();
+            int totalUsers = dbManager.getTotalUsers();
+            int totalPhotos = dbManager.getTotalPhotos();
+            QDateTime lastActivity = dbManager.getLastActivity();
+            
+            QString statsMsg = QString(
+                "=== 피부 분석 시스템 통계 ===\n\n"
+                "총 사용자 수: %1명\n"
+                "총 사진 수: %2장\n"
+                "마지막 활동: %3\n"
+                "현재 사용자: %4"
+            ).arg(totalUsers)
+             .arg(totalPhotos)
+             .arg(lastActivity.isValid() ? lastActivity.toString("yyyy-MM-dd hh:mm:ss") : "없음")
+             .arg(currentUserName);
+            
+            QMessageBox::information(this, "시스템 통계", statsMsg);
+        });
+    }
+}
+
+QString MainWindow::generatePhotoFileName() const
+{
+    QDateTime now = QDateTime::currentDateTime();
+    QString timestamp = now.toString("yyyyMMdd_HHmmss");
+    return QString("%1_%2.jpg").arg(currentUserName, timestamp);
+}
+
+void MainWindow::savePhotoToDatabase(const QString& fileName, const QString& filePath)
+{
+    if (currentSessionId == -1) {
+        qWarning() << "No active user session for saving photo";
+        return;
+    }
+    
+    // 메타데이터 생성
+    QJsonObject metadata;
+    metadata["user_name"] = currentUserName;
+    metadata["session_id"] = currentSessionId;
+    metadata["device_id"] = QSysInfo::machineHostName();
+    metadata["server_url"] = serverUrl;
+    
+    QFileInfo fileInfo(filePath);
+    metadata["file_size"] = fileInfo.size();
+    
+    QJsonDocument metaDoc(metadata);
+    QString metaString = metaDoc.toJson(QJsonDocument::Compact);
+    
+    DatabaseManager& dbManager = DatabaseManager::instance();
+    int photoId = dbManager.savePhotoRecord(currentSessionId, fileName, filePath, metaString);
+    
+    if (photoId != -1) {
+        qDebug() << "Photo saved to database with ID:" << photoId;
+        
+        // 사진 저장 성공 메시지를 상태바에 표시
+        ui->statusbar->showMessage(QString("사진 저장됨: %1").arg(fileName), 3000);
+    } else {
+        qWarning() << "Failed to save photo to database";
+    }
 }
