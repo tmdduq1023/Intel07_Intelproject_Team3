@@ -1,7 +1,7 @@
 import requests
 
 # 라즈베리파이의 실제 IP 주소로 변경
-DESTINATION_URL = "http://192.168.0.90:5000/receive"  # http:// 추가 및 포트 5000
+DESTINATION_URL = "http://192.168.0.90:/receive"  # http:// 추가 및 포트 5000
 
 def send_data(data: dict) -> None:
     try:
