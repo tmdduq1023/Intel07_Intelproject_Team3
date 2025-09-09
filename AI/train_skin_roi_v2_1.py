@@ -55,51 +55,113 @@ FACEPART_TO_LABEL_SUBSTR = {
 
 
 
-def build_roi_label_space(train_json_path):
+# =================================================================================
+# [사용자 설정] need_data 파일을 기반으로 생성된 학습 대상 정의
+# =================================================================================
+CUSTOM_LABEL_SPACE_CONFIG = {
+    "forehead": {
+        "regression": [
+            "eq_forehead_moisture",
+            "eq_forehead_elasticity_Q0",
+        ],
+        "classification": [
+            "ann_forehead_pigmentation"
+        ]
+    },
+    "left_cheek": {
+        "regression": [
+            "eq_l_cheek_pore",
+            "eq_l_cheek_moisture",
+            "eq_l_cheek_elasticity_Q0",
+        ],
+        "classification": [
+            "ann_l_cheek_pigmentation"
+        ]
+    },
+    "right_cheek": {
+        "regression": [
+            "eq_r_cheek_pore",
+            "eq_r_cheek_moisture",
+            "eq_r_cheek_elasticity_Q0",
+        ],
+        "classification": [
+            "ann_r_cheek_pigmentation"
+        ]
+    },
+    "lips": {
+        "regression": [],
+        "classification": [
+            "ann_lip_dryness"
+        ]
+    },
+    "chin": {
+        "regression": [
+            "eq_chin_moisture",
+            "eq_chin_elasticity_Q0",
+        ],
+        "classification": []
+    },
+}
+# =================================================================================
+
+
+def build_roi_label_space(train_json_path, custom_config):
+    
+    # Initialize the label space from the custom config
+    roi_label_space = {"regression_keys": {}, "class_keys": {}, "class_key_to_index": {}}
+    for roi, config in custom_config.items():
+        roi_label_space["regression_keys"][roi] = sorted(config.get("regression", []))
+        roi_label_space["class_keys"][roi] = sorted(config.get("classification", []))
+
+    # For classification keys, we still need to find the possible values from the data
+    # to define the classifier's output size.
     coco = load_json(train_json_path)
     id2name = {c["id"]: c["name"] for c in coco["categories"]}
-
-    roi_regression = defaultdict(set)
+    
+    # Create a temporary structure to gather all possible values for the selected classification keys
     roi_class_vals = defaultdict(lambda: defaultdict(set))
-
     for a in coco["annotations"]:
         if "value" not in a:
             continue
-        name = id2name[a["category_id"]]
-        val = a["value"]
+        name = id2name.get(a["category_id"])
+        if name is None: continue
 
+        # Check if this annotation name is one of the ones we want to train
+        is_target_class = False
+        for roi, C_keys in roi_label_space["class_keys"].items():
+            if name in C_keys:
+                is_target_class = True
+                break
+        if not is_target_class:
+            continue
+
+        # If it is, find which ROI it belongs to and add the value
         roi_hits = []
         for roi, subs in FACEPART_TO_LABEL_SUBSTR.items():
             if any(s in name for s in subs):
                 roi_hits.append(roi)
-        if not roi_hits:
-            continue
-
-        if name.startswith("eq_"):
+        
+        try:
+            iv = int(round(float(a["value"])))
             for r in roi_hits:
-                roi_regression[r].add(name)
-        elif name.startswith("ann_"):
-            try:
-                iv = int(round(float(val)))
-                for r in roi_hits:
+                # Only add if the key is actually in our custom config for that ROI
+                if name in roi_label_space["class_keys"].get(r, []):
                     roi_class_vals[r][name].add(iv)
-            except:
-                pass
+        except:
+            pass
 
-    roi_label_space = {"regression_keys": {}, "class_keys": {}, "class_key_to_index": {}}
-    for roi in FACEPART_TO_LABEL_SUBSTR.keys():
-        R = sorted(list(roi_regression[roi])) if roi in roi_regression else []
-        C = sorted(list(roi_class_vals[roi].keys())) if roi in roi_class_vals else []
-        roi_label_space["regression_keys"][roi] = R
-        roi_label_space["class_keys"][roi] = C
-        for ck in C:
+    # Now, build the index maps for the classification keys we care about
+    for roi, C_keys in roi_label_space["class_keys"].items():
+        roi_label_space["class_key_to_index"].setdefault(roi, {})
+        for ck in C_keys:
             vals = sorted(list(roi_class_vals[roi][ck]))
+            if not vals: continue
             v2i = {v:i for i,v in enumerate(vals)}
             i2v = {i:v for v,i in v2i.items()}
-            roi_label_space["class_key_to_index"].setdefault(roi, {})[ck] = {
+            roi_label_space["class_key_to_index"][roi][ck] = {
                 "values": vals, "val_to_idx": v2i, "idx_to_val": i2v
             }
-
+            
     return roi_label_space
 
 
@@ -140,47 +202,67 @@ class RoiDataset(Dataset):
         self.data_root = Path(data_root)
         self.id2img = {im["id"]: im for im in self.coco["images"]}
         self.id2name = {c["id"]: c["name"] for c in self.coco["categories"]}
-        self.anns_by_img = defaultdict(list)
-        for a in self.coco["annotations"]:
-            self.anns_by_img[a["image_id"]].append(a)
-
+        
         self.roi_reg_keys = roi_label_space["regression_keys"]
         self.roi_cls_keys = roi_label_space["class_keys"]
         self.roi_cls_maps = roi_label_space["class_key_to_index"]
         self.pad_ratio = pad_ratio
-        self.reg_std = reg_std or {} 
+        self.reg_std = reg_std or {}
 
-        self.samples = []  
+        # Annotations and feature names are pre-processed for efficient lookup.
+        self.anns_by_img = defaultdict(list)
+        for a in self.coco["annotations"]:
+            self.anns_by_img[a["image_id"]].append(a)
+
+        feature_names_by_img = defaultdict(set)
+        for img_id, anns in self.anns_by_img.items():
+            for a in anns:
+                if "value" in a:
+                    cat_id = a.get("category_id")
+                    if cat_id in self.id2name:
+                        feature_names_by_img[img_id].add(self.id2name[cat_id])
+
+        self.samples = []
         for img_id, im in self.id2img.items():
             W, H = im.get("width"), im.get("height")
             if W is None or H is None:
                 continue
-            for a in self.anns_by_img.get(img_id, []):
-                if "value" in a:
-                    continue
+
+            facepart_anns = [a for a in self.anns_by_img.get(img_id, []) if self.id2name.get(a.get("category_id")) and self.id2name[a["category_id"]].startswith("facepart::")]
+
+            for a in facepart_anns:
                 cname = self.id2name[a["category_id"]]
-                if not cname.startswith("facepart::"):
+                roi_name = cname.split("facepart::", 1)[1]
+
+                target_reg_keys = self.roi_reg_keys.get(roi_name, [])
+                target_cls_keys = self.roi_cls_keys.get(roi_name, [])
+                if not target_reg_keys and not target_cls_keys:
                     continue
-                roi_name = cname.split("facepart::",1)[1]
+
+                image_features = feature_names_by_img.get(img_id, set())
+                has_label = any(key in image_features for key in target_reg_keys) or \
+                            any(key in image_features for key in target_cls_keys)
+
+                if not has_label:
+                    continue
+
                 bbox = a.get("bbox", [])
                 if not bbox or len(bbox) != 4:
                     continue
-                x,y,w,h = bbox
-                px, py = int(w*self.pad_ratio), int(h*self.pad_ratio)
-                x,y,w,h = clamp_bbox(x-px, y-py, w+2*px, h+2*py, W, H)
-                if len(self.roi_reg_keys.get(roi_name, [])) == 0 and len(self.roi_cls_keys.get(roi_name, [])) == 0:
-                    continue
-                self.samples.append((img_id, roi_name, [x,y,w,h]))
+                x, y, w, h = bbox
+                px, py = int(w * self.pad_ratio), int(h * self.pad_ratio)
+                x, y, w, h = clamp_bbox(x - px, y - py, w + 2 * px, h + 2 * py, W, H)
+                self.samples.append((img_id, roi_name, [x, y, w, h]))
 
         if is_train:
             self.tf = transforms.Compose([
                 transforms.Resize((img_size, img_size)),
-                transforms.RandomAffine(degrees=15, translate=(0.1, 0.1), scale=(0.9, 1.1), shear=10),
-                transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
+                transforms.RandomAffine(degrees=20, translate=(0.15, 0.15), scale=(0.85, 1.15), shear=10),
+                transforms.ColorJitter(brightness=0.3, contrast=0.3, saturation=0.3, hue=0.1),
                 transforms.RandomHorizontalFlip(p=0.5),
                 transforms.ToTensor(),
                 transforms.Normalize(mean=[0.485,0.456,0.406], std=[0.229,0.224,0.225]),
-                transforms.RandomErasing(p=0.2, scale=(0.02, 0.1), ratio=(0.3, 3.3)),
+                transforms.RandomErasing(p=0.5, scale=(0.02, 0.1), ratio=(0.3, 3.3)),
             ])
         else:
             self.tf = transforms.Compose([
@@ -267,7 +349,7 @@ def roi_collate(batch):
 
 
 class RoiMultiHead(nn.Module):
-    def __init__(self, backbone="resnet50", roi_label_space=None, pretrained=True):
+    def __init__(self, backbone="resnet50", roi_label_space=None, pretrained=True, drop_rate=0.0):
         super().__init__()
         assert roi_label_space is not None
         self.roi_reg_keys = roi_label_space["regression_keys"]
@@ -282,7 +364,7 @@ class RoiMultiHead(nn.Module):
             m.fc = nn.Identity()
             self.backbone = m
         else:
-            self.backbone = timm.create_model(backbone, pretrained=pretrained, num_classes=0)
+            self.backbone = timm.create_model(backbone, pretrained=pretrained, num_classes=0, drop_rate=drop_rate)
             in_dim = self.backbone.num_features
 
         self.reg_heads = nn.ModuleDict()
@@ -423,13 +505,17 @@ def train_one_epoch(model, loader, optim, device, lambda_reg=1.0, lambda_cls=1.0
                     if acc is not None and nvalid_acc > 0:
                         total_acc += acc; n_cls += 1
 
-        if scaler is not None:
-            scaler.scale(total_loss).backward()
-            scaler.step(optim)
-            scaler.update()
+        if total_loss.requires_grad:
+            if scaler is not None:
+                scaler.scale(total_loss).backward()
+                scaler.step(optim)
+                scaler.update()
+            else:
+                total_loss.backward()
+                optim.step()
         else:
-            total_loss.backward()
-            optim.step()
+            # This can happen if a batch contains no valid labels for any task
+            print(f"\nWarning: Skipping optimizer step for a batch with no valid labels. Batch ROIs: {roi_names}")
 
         steps += 1
         avg["loss"] += float(total_loss.item())
@@ -539,9 +625,6 @@ class EarlyStopping:
         return self.num_bad >= self.patience
 
 
-
-
-
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--data-root", type=str, default="/home/bbang/Workspace/Intel07_Intelproject_Team3/dataset")
@@ -556,7 +639,8 @@ def main():
     ap.add_argument("--backbone",   type=str, default="convnext_large", help="timm 라이브러리 모델 이름")
     ap.add_argument("--lr-backbone",type=float, default=5e-5)
     ap.add_argument("--lr-head",    type=float, default=1e-3)
-    ap.add_argument("--weight-decay", type=float, default=1e-4)
+    ap.add_argument("--weight-decay", type=float, default=5e-4)
+    ap.add_argument("--drop-rate",    type=float, default=0.2, help="Dropout rate for backbone")
     ap.add_argument("--lambda-reg", type=float, default=1.0)
     ap.add_argument("--lambda-cls", type=float, default=1.0)
     ap.add_argument("--seed",       type=int, default=42)
@@ -571,7 +655,7 @@ def main():
     os.makedirs(args.out_dir, exist_ok=True)
 
     
-    roi_label_space = build_roi_label_space(args.train_json)
+    roi_label_space = build_roi_label_space(args.train_json, CUSTOM_LABEL_SPACE_CONFIG)
     save_json(roi_label_space, os.path.join(args.out_dir, "roi_label_space.json")),
     
     
@@ -594,7 +678,7 @@ def main():
                               num_workers=args.workers, pin_memory=True, collate_fn=roi_collate)
 
     
-    model = RoiMultiHead(backbone=args.backbone, roi_label_space=roi_label_space, pretrained=True).to(device)
+    model = RoiMultiHead(backbone=args.backbone, roi_label_space=roi_label_space, pretrained=True, drop_rate=args.drop_rate).to(device)
     backbone_params, head_params = [], []
     for n,p in model.named_parameters():
         (backbone_params if "backbone" in n else head_params).append(p)
@@ -607,7 +691,7 @@ def main():
 
     
     stopper = EarlyStopping(patience=args.early_patience, min_delta=args.early_min_delta)
-    best_path  = os.path.join(args.out_dir, "best.pth")
+    best_path  = os.path.join(args.out_dir, "best_tiny.pth")
     best_epoch = 0
 
     start_time = datetime.now()
