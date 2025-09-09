@@ -11,11 +11,13 @@ CONFIG += c++17
 SOURCES += \
     main.cpp \
     mainwindow.cpp \
+    analysisresultdialog.cpp \
     nameinputdialog.cpp \
     databasemanager.cpp
 
 HEADERS += \
     mainwindow.h \
+    analysisresultdialog.h \
     nameinputdialog.h \
     databasemanager.h
 

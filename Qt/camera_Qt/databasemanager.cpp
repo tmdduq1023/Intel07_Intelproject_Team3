@@ -3,10 +3,9 @@
 #include <QDir>
 #include <QStandardPaths>
 #include <QJsonDocument>
-#include <QJsonObject>
 #include <QApplication>
 
-DatabaseManager::DatabaseManager() : currentSessionId(-1)
+DatabaseManager::DatabaseManager()
 {
     // SQLite 드라이버 확인
     if (!QSqlDatabase::isDriverAvailable("QSQLITE")) {
@@ -31,7 +30,7 @@ bool DatabaseManager::initializeDatabase()
     // 데이터베이스 파일 경로 설정
     QString dataPath = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
     QDir().mkpath(dataPath);
-    QString dbPath = dataPath + "/skin_analyzer.db";
+    QString dbPath = dataPath + "/skin_analysis.db";
     
     qDebug() << "Database path:" << dbPath;
     
@@ -57,10 +56,6 @@ bool DatabaseManager::initializeDatabase()
 
 void DatabaseManager::closeDatabase()
 {
-    if (currentSessionId != -1) {
-        closeUserSession(currentSessionId);
-    }
-    
     if (database.isOpen()) {
         database.close();
         qDebug() << "Database closed";
@@ -71,35 +66,19 @@ bool DatabaseManager::createTables()
 {
     QStringList createQueries;
     
-    // 사용자 세션 테이블
+    // 분석 결과 테이블
     createQueries << R"(
-        CREATE TABLE IF NOT EXISTS user_sessions (
+        CREATE TABLE IF NOT EXISTS analysis_records (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_name TEXT NOT NULL,
-            session_start DATETIME DEFAULT CURRENT_TIMESTAMP,
-            last_activity DATETIME DEFAULT CURRENT_TIMESTAMP,
-            is_active BOOLEAN DEFAULT 1
-        )
-    )";
-    
-    // 사진 기록 테이블
-    createQueries << R"(
-        CREATE TABLE IF NOT EXISTS photo_records (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            session_id INTEGER NOT NULL,
-            file_name TEXT NOT NULL,
-            file_path TEXT NOT NULL,
             capture_time DATETIME DEFAULT CURRENT_TIMESTAMP,
-            metadata TEXT,
-            FOREIGN KEY (session_id) REFERENCES user_sessions (id)
+            analysis_data TEXT NOT NULL
         )
     )";
     
     // 인덱스 생성
-    createQueries << "CREATE INDEX IF NOT EXISTS idx_sessions_active ON user_sessions(is_active)";
-    createQueries << "CREATE INDEX IF NOT EXISTS idx_sessions_start ON user_sessions(session_start)";
-    createQueries << "CREATE INDEX IF NOT EXISTS idx_photos_session ON photo_records(session_id)";
-    createQueries << "CREATE INDEX IF NOT EXISTS idx_photos_capture ON photo_records(capture_time)";
+    createQueries << "CREATE INDEX IF NOT EXISTS idx_records_user ON analysis_records(user_name)";
+    createQueries << "CREATE INDEX IF NOT EXISTS idx_records_time ON analysis_records(capture_time)";
     
     for (const QString &query : createQueries) {
         if (!executeQuery(query)) {
@@ -136,167 +115,87 @@ QSqlQuery DatabaseManager::prepareQuery(const QString &query, const QVariantList
     return sqlQuery;
 }
 
-int DatabaseManager::createUserSession(const QString &userName)
+bool DatabaseManager::saveAnalysisResult(const QString &userName, const QJsonObject &analysisData)
 {
     QString query = R"(
-        INSERT INTO user_sessions (user_name, session_start, last_activity, is_active)
-        VALUES (?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 1)
+        INSERT INTO analysis_records (user_name, capture_time, analysis_data)
+        VALUES (?, CURRENT_TIMESTAMP, ?)
     )";
+    
+    QJsonDocument doc(analysisData);
+    QString jsonString = doc.toJson(QJsonDocument::Compact);
+    
+    QSqlQuery sqlQuery = prepareQuery(query, {userName, jsonString});
+    
+    if (sqlQuery.exec()) {
+        int recordId = sqlQuery.lastInsertId().toInt();
+        qDebug() << "Analysis result saved for:" << userName << "ID:" << recordId;
+        return true;
+    } else {
+        qCritical() << "Failed to save analysis result:" << sqlQuery.lastError().text();
+        return false;
+    }
+}
+
+QList<AnalysisRecord> DatabaseManager::getUserHistory(const QString &userName) const
+{
+    QList<AnalysisRecord> records;
+    QString query = "SELECT id, user_name, capture_time, analysis_data FROM analysis_records WHERE user_name = ? ORDER BY capture_time DESC";
     
     QSqlQuery sqlQuery = prepareQuery(query, {userName});
     
     if (sqlQuery.exec()) {
-        currentSessionId = sqlQuery.lastInsertId().toInt();
-        qDebug() << "User session created for:" << userName << "ID:" << currentSessionId;
-        return currentSessionId;
-    } else {
-        qCritical() << "Failed to create user session:" << sqlQuery.lastError().text();
-        return -1;
-    }
-}
-
-bool DatabaseManager::updateSessionActivity(int sessionId)
-{
-    QString query = "UPDATE user_sessions SET last_activity = CURRENT_TIMESTAMP WHERE id = ?";
-    return executeQuery(query, {sessionId});
-}
-
-bool DatabaseManager::closeUserSession(int sessionId)
-{
-    QString query = "UPDATE user_sessions SET is_active = 0 WHERE id = ?";
-    bool result = executeQuery(query, {sessionId});
-    
-    if (result && sessionId == currentSessionId) {
-        currentSessionId = -1;
+        while (sqlQuery.next()) {
+            AnalysisRecord record;
+            record.id = sqlQuery.value(0).toInt();
+            record.userName = sqlQuery.value(1).toString();
+            record.captureTime = sqlQuery.value(2).toDateTime();
+            
+            QString jsonString = sqlQuery.value(3).toString();
+            QJsonDocument doc = QJsonDocument::fromJson(jsonString.toUtf8());
+            record.analysisData = doc.object();
+            
+            records.append(record);
+        }
     }
     
-    return result;
+    return records;
 }
 
-UserSession DatabaseManager::getCurrentSession() const
+QList<AnalysisRecord> DatabaseManager::getAllHistory() const
 {
-    UserSession session;
-    session.id = -1;
-    
-    if (currentSessionId == -1) {
-        return session;
-    }
-    
-    QString query = "SELECT id, user_name, session_start, last_activity, is_active FROM user_sessions WHERE id = ?";
-    QSqlQuery sqlQuery = prepareQuery(query, {currentSessionId});
-    
-    if (sqlQuery.exec() && sqlQuery.next()) {
-        session.id = sqlQuery.value(0).toInt();
-        session.userName = sqlQuery.value(1).toString();
-        session.sessionStart = sqlQuery.value(2).toDateTime();
-        session.lastActivity = sqlQuery.value(3).toDateTime();
-        session.isActive = sqlQuery.value(4).toBool();
-    }
-    
-    return session;
-}
-
-QList<UserSession> DatabaseManager::getAllSessions() const
-{
-    QList<UserSession> sessions;
-    QString query = "SELECT id, user_name, session_start, last_activity, is_active FROM user_sessions ORDER BY session_start DESC";
+    QList<AnalysisRecord> records;
+    QString query = "SELECT id, user_name, capture_time, analysis_data FROM analysis_records ORDER BY capture_time DESC";
     
     QSqlQuery sqlQuery = prepareQuery(query);
     
     if (sqlQuery.exec()) {
         while (sqlQuery.next()) {
-            UserSession session;
-            session.id = sqlQuery.value(0).toInt();
-            session.userName = sqlQuery.value(1).toString();
-            session.sessionStart = sqlQuery.value(2).toDateTime();
-            session.lastActivity = sqlQuery.value(3).toDateTime();
-            session.isActive = sqlQuery.value(4).toBool();
-            sessions.append(session);
+            AnalysisRecord record;
+            record.id = sqlQuery.value(0).toInt();
+            record.userName = sqlQuery.value(1).toString();
+            record.captureTime = sqlQuery.value(2).toDateTime();
+            
+            QString jsonString = sqlQuery.value(3).toString();
+            QJsonDocument doc = QJsonDocument::fromJson(jsonString.toUtf8());
+            record.analysisData = doc.object();
+            
+            records.append(record);
         }
     }
     
-    return sessions;
+    return records;
 }
 
-int DatabaseManager::savePhotoRecord(int sessionId, const QString &fileName, 
-                                   const QString &filePath, const QString &metadata)
+bool DatabaseManager::deleteAnalysisRecord(int recordId)
 {
-    QString query = R"(
-        INSERT INTO photo_records (session_id, file_name, file_path, capture_time, metadata)
-        VALUES (?, ?, ?, CURRENT_TIMESTAMP, ?)
-    )";
-    
-    QSqlQuery sqlQuery = prepareQuery(query, {sessionId, fileName, filePath, metadata});
-    
-    if (sqlQuery.exec()) {
-        int photoId = sqlQuery.lastInsertId().toInt();
-        qDebug() << "Photo record saved:" << fileName << "ID:" << photoId;
-        
-        // 세션 활동 시간 업데이트
-        updateSessionActivity(sessionId);
-        
-        return photoId;
-    } else {
-        qCritical() << "Failed to save photo record:" << sqlQuery.lastError().text();
-        return -1;
-    }
-}
-
-QList<PhotoRecord> DatabaseManager::getPhotosForSession(int sessionId) const
-{
-    QList<PhotoRecord> photos;
-    QString query = "SELECT id, session_id, file_name, file_path, capture_time, metadata FROM photo_records WHERE session_id = ? ORDER BY capture_time DESC";
-    
-    QSqlQuery sqlQuery = prepareQuery(query, {sessionId});
-    
-    if (sqlQuery.exec()) {
-        while (sqlQuery.next()) {
-            PhotoRecord photo;
-            photo.id = sqlQuery.value(0).toInt();
-            photo.sessionId = sqlQuery.value(1).toInt();
-            photo.fileName = sqlQuery.value(2).toString();
-            photo.filePath = sqlQuery.value(3).toString();
-            photo.captureTime = sqlQuery.value(4).toDateTime();
-            photo.metadata = sqlQuery.value(5).toString();
-            photos.append(photo);
-        }
-    }
-    
-    return photos;
-}
-
-QList<PhotoRecord> DatabaseManager::getAllPhotos() const
-{
-    QList<PhotoRecord> photos;
-    QString query = "SELECT id, session_id, file_name, file_path, capture_time, metadata FROM photo_records ORDER BY capture_time DESC";
-    
-    QSqlQuery sqlQuery = prepareQuery(query);
-    
-    if (sqlQuery.exec()) {
-        while (sqlQuery.next()) {
-            PhotoRecord photo;
-            photo.id = sqlQuery.value(0).toInt();
-            photo.sessionId = sqlQuery.value(1).toInt();
-            photo.fileName = sqlQuery.value(2).toString();
-            photo.filePath = sqlQuery.value(3).toString();
-            photo.captureTime = sqlQuery.value(4).toDateTime();
-            photo.metadata = sqlQuery.value(5).toString();
-            photos.append(photo);
-        }
-    }
-    
-    return photos;
-}
-
-bool DatabaseManager::deletePhotoRecord(int photoId)
-{
-    QString query = "DELETE FROM photo_records WHERE id = ?";
-    return executeQuery(query, {photoId});
+    QString query = "DELETE FROM analysis_records WHERE id = ?";
+    return executeQuery(query, {recordId});
 }
 
 int DatabaseManager::getTotalUsers() const
 {
-    QString query = "SELECT COUNT(DISTINCT user_name) FROM user_sessions";
+    QString query = "SELECT COUNT(DISTINCT user_name) FROM analysis_records";
     QSqlQuery sqlQuery = prepareQuery(query);
     
     if (sqlQuery.exec() && sqlQuery.next()) {
@@ -306,9 +205,9 @@ int DatabaseManager::getTotalUsers() const
     return 0;
 }
 
-int DatabaseManager::getTotalPhotos() const
+int DatabaseManager::getTotalRecords() const
 {
-    QString query = "SELECT COUNT(*) FROM photo_records";
+    QString query = "SELECT COUNT(*) FROM analysis_records";
     QSqlQuery sqlQuery = prepareQuery(query);
     
     if (sqlQuery.exec() && sqlQuery.next()) {
@@ -320,7 +219,7 @@ int DatabaseManager::getTotalPhotos() const
 
 QDateTime DatabaseManager::getLastActivity() const
 {
-    QString query = "SELECT MAX(last_activity) FROM user_sessions";
+    QString query = "SELECT MAX(capture_time) FROM analysis_records";
     QSqlQuery sqlQuery = prepareQuery(query);
     
     if (sqlQuery.exec() && sqlQuery.next()) {

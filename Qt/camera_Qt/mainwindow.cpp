@@ -14,16 +14,11 @@
 #include <QSettings>
 #include <QProgressDialog>
 #include <QTimer>
-#include <QLabel>
-#include <QFileInfo>
-#include <QStandardPaths>
-#include <QDir>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
     , ui(new Ui::MainWindow)
     , isCameraRunning(false)
-    , currentSessionId(-1)
 {
     ui->setupUi(this);
 
@@ -46,6 +41,9 @@ MainWindow::MainWindow(QWidget *parent)
     // 서버 설정 로드
     loadServerConfig();
 
+    // 데이터베이스 초기화
+    initializeDatabase();
+    
     // 카메라 초기화
     setupCamera();
 
@@ -54,12 +52,6 @@ MainWindow::MainWindow(QWidget *parent)
     ui->snapShotButton->setText("Upload Snapshot");
     ui->snapShotButton->setEnabled(false);
 
-    // 데이터베이스 초기화
-    initializeDatabase();
-    
-    // 이름 입력 다이얼로그 표시 (약간의 지연 후)
-    QTimer::singleShot(100, this, &MainWindow::showNameInputDialog);
-    
     // 상태바에 서버 정보 표시
     ui->statusbar->showMessage(QString("Server: %1").arg(serverUrl));
 }
@@ -79,19 +71,22 @@ void MainWindow::loadServerConfig()
     QSettings settings("config.ini", QSettings::IniFormat);
 
     // 기본값 설정 (필요에 따라 수정)
-    serverUrl = settings.value("Server/url", "http://192.168.1.100:8080").toString();
+    serverUrl = settings.value("Server/url", "http://192.168.0.90:5000").toString();
     serverEndpoint = settings.value("Server/endpoint", "/upload").toString();
+    raspUrl = settings.value("Server/rasp_url", "http://localhost:5000").toString();
 
     // 설정 파일이 없으면 생성
     if (!settings.contains("Server/url")) {
         settings.setValue("Server/url", serverUrl);
         settings.setValue("Server/endpoint", serverEndpoint);
+        settings.setValue("Server/rasp_url", raspUrl);
         settings.sync();
 
         qDebug() << "Created config.ini with default server settings";
     }
 
     qDebug() << "Server URL:" << serverUrl + serverEndpoint;
+    qDebug() << "Rasp URL:" << raspUrl;
 }
 
 void MainWindow::setupCamera()
@@ -185,31 +180,13 @@ void MainWindow::on_snapShotButton_clicked()
         return;
     }
 
-    // 버튼 비활성화 (중복 전송 방지)
-    ui->snapShotButton->setEnabled(false);
-    ui->snapShotButton->setText("Uploading...");
-
-    // 이미지 캡처
-    imageCapture->capture();
+    // 이름 입력 다이얼로그 표시
+    showNameInputDialog();
 }
 
 void MainWindow::processCapturedImage(int requestId, const QImage& img)
 {
     Q_UNUSED(requestId);
-    
-    // 사진 파일명 생성
-    QString fileName = generatePhotoFileName();
-    
-    // 사진을 로컬에 임시 저장
-    QString tempPath = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
-    QDir().mkpath(tempPath);
-    QString filePath = tempPath + "/" + fileName;
-    
-    if (img.save(filePath, "JPG", 90)) {
-        // 데이터베이스에 저장
-        savePhotoToDatabase(fileName, filePath);
-        qDebug() << "Photo saved locally:" << filePath;
-    }
 
     // 서버로 이미지 전송
     uploadImageToServer(img);
@@ -314,10 +291,12 @@ void MainWindow::onUploadFinished(QNetworkReply* reply)
             }
         }
 
-        QMessageBox::information(this, "Success", message);
-        ui->statusbar->showMessage("Upload successful", 3000);
-
+        ui->statusbar->showMessage("Upload successful - Fetching analysis result...", 3000);
         qDebug() << "Server response:" << response;
+        
+        // 업로드 성공 후 분석 결과 가져오기 (약간의 지연 후)
+        QTimer::singleShot(2000, this, &MainWindow::fetchAnalysisResult);
+        
     } else {
         QString errorMsg = QString("Upload failed!\nError: %1\n%2")
         .arg(reply->error())
@@ -396,17 +375,158 @@ void MainWindow::setupUILayout()
     setMinimumSize(640, 480);
 }
 
+void MainWindow::fetchAnalysisResult()
+{
+    // rasp.py에서 분석 결과 가져오기 - 별도의 네트워크 매니저 사용
+    QNetworkAccessManager* analysisNetworkManager = new QNetworkAccessManager(this);
+    
+    QNetworkRequest request;
+    request.setUrl(QUrl(raspUrl + "/get_analysis"));
+    request.setRawHeader("User-Agent", "Qt Camera Client 1.0");
+    request.setRawHeader("Accept", "application/json");
+    request.setRawHeader("Connection", "close");
+    
+    QNetworkReply* reply = analysisNetworkManager->get(request);
+    
+    // 타임아웃 설정
+    QTimer::singleShot(10000, reply, &QNetworkReply::abort); // 10초 타임아웃
+    
+    connect(reply, &QNetworkReply::finished, [this, reply, analysisNetworkManager]() {
+        qDebug() << "Network reply finished with error:" << reply->error();
+        qDebug() << "HTTP status code:" << reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        qDebug() << "Bytes available:" << reply->bytesAvailable();
+        
+        // 모든 데이터를 받을 때까지 기다림
+        reply->waitForReadyRead(3000);
+        
+        if (reply->error() == QNetworkReply::NoError) {
+            QByteArray response;
+            
+            // 데이터를 조각별로 읽기
+            while (!reply->atEnd()) {
+                QByteArray chunk = reply->read(1024);
+                response.append(chunk);
+                qDebug() << "Read chunk of size:" << chunk.size();
+            }
+            
+            // readAll()로도 한번 더 시도
+            QByteArray remaining = reply->readAll();
+            response.append(remaining);
+            
+            qDebug() << "Raw response:" << response;
+            qDebug() << "Response length:" << response.length();
+            
+            if (response.isEmpty()) {
+                qDebug() << "Empty response received!";
+                ui->statusbar->showMessage("Empty response from server", 3000);
+                reply->deleteLater();
+                return;
+            }
+            
+            QJsonParseError parseError;
+            QJsonDocument jsonDoc = QJsonDocument::fromJson(response, &parseError);
+            
+            if (parseError.error != QJsonParseError::NoError) {
+                qDebug() << "JSON parse error:" << parseError.errorString();
+                qDebug() << "Invalid JSON response:" << response;
+                ui->statusbar->showMessage("Invalid JSON response", 3000);
+                reply->deleteLater();
+                return;
+            }
+            
+            if (jsonDoc.isObject()) {
+                QJsonObject responseObj = jsonDoc.object();
+                qDebug() << "Parsed JSON object:" << responseObj;
+                
+                if (responseObj["status"].toString() == "success" && 
+                    responseObj.contains("analysis_data")) {
+                    
+                    QJsonObject analysisData = responseObj["analysis_data"].toObject();
+                    
+                    qDebug() << "Analysis result received:" << analysisData;
+                    
+                    // 이전 기록 조회 (비교용)
+                    DatabaseManager& dbManager = DatabaseManager::instance();
+                    QList<AnalysisRecord> userHistory = dbManager.getUserHistory(currentUserName);
+                    
+                    AnalysisResultDialog *dialog = nullptr;
+                    
+                    // 이전 기록이 있으면 비교 모드로 표시
+                    if (!userHistory.isEmpty()) {
+                        QJsonObject previousData = userHistory.first().analysisData;
+                        qDebug() << "Found previous record for comparison";
+                        
+                        // 비교 다이얼로그 생성
+                        dialog = new AnalysisResultDialog(analysisData, previousData, currentUserName, this);
+                    } else {
+                        // 이전 기록이 없으면 일반 모드로 표시
+                        qDebug() << "No previous record found, showing normal view";
+                        dialog = new AnalysisResultDialog(analysisData, currentUserName, this);
+                    }
+                    
+                    // 현재 분석 결과를 데이터베이스에 저장 (다이얼로그 표시 후)
+                    if (dbManager.saveAnalysisResult(currentUserName, analysisData)) {
+                        qDebug() << "Analysis result saved to database successfully";
+                    } else {
+                        qWarning() << "Failed to save analysis result to database";
+                    }
+                    
+                    // 다이얼로그 표시
+                    if (dialog) {
+                        dialog->exec();
+                        dialog->deleteLater();
+                    }
+                    
+                    ui->statusbar->showMessage("Analysis result displayed and saved", 3000);
+                    
+                } else if (responseObj["status"].toString() == "no_data") {
+                    ui->statusbar->showMessage("No analysis data available yet", 3000);
+                    qDebug() << "No analysis data available";
+                } else {
+                    ui->statusbar->showMessage("Failed to get analysis result", 3000);
+                    qDebug() << "Failed to get analysis result:" << responseObj;
+                }
+            } else {
+                ui->statusbar->showMessage("Response is not JSON object", 3000);
+                qDebug() << "Response is not JSON object:" << jsonDoc;
+            }
+        } else {
+            ui->statusbar->showMessage("Failed to connect to analysis server", 3000);
+            qDebug() << "Network error:" << reply->errorString();
+            qDebug() << "Error code:" << reply->error();
+        }
+        
+        reply->deleteLater();
+        analysisNetworkManager->deleteLater();
+    });
+    
+    qDebug() << "Fetching analysis result from:" << raspUrl + "/get_analysis";
+}
+
 void MainWindow::initializeDatabase()
 {
     DatabaseManager& dbManager = DatabaseManager::instance();
     if (!dbManager.initializeDatabase()) {
         QMessageBox::critical(this, "데이터베이스 오류", 
-            "데이터베이스를 초기화할 수 없습니다.\n애플리케이션을 종료합니다.");
-        QApplication::quit();
+            "데이터베이스를 초기화할 수 없습니다.\n애플리케이션을 계속 사용할 수 있지만 분석 결과가 저장되지 않습니다.");
         return;
     }
     
     qDebug() << "Database initialized successfully";
+    
+    // 통계 정보 로드
+    int totalUsers = dbManager.getTotalUsers();
+    int totalRecords = dbManager.getTotalRecords();
+    QDateTime lastActivity = dbManager.getLastActivity();
+    
+    QString statsMsg = QString("DB 통계 - 사용자: %1명, 분석기록: %2건")
+                      .arg(totalUsers).arg(totalRecords);
+    
+    if (lastActivity.isValid()) {
+        statsMsg += QString(", 마지막 활동: %1").arg(lastActivity.toString("MM-dd hh:mm"));
+    }
+    
+    qDebug() << statsMsg;
 }
 
 void MainWindow::showNameInputDialog()
@@ -416,115 +536,19 @@ void MainWindow::showNameInputDialog()
     if (dialog.exec() == QDialog::Accepted) {
         currentUserName = dialog.getUserName();
         
-        // 사용자 세션 생성
-        DatabaseManager& dbManager = DatabaseManager::instance();
-        currentSessionId = dbManager.createUserSession(currentUserName);
+        qDebug() << "User name entered:" << currentUserName;
         
-        if (currentSessionId != -1) {
-            updateUIForUser();
-            qDebug() << "User session created for:" << currentUserName;
-        } else {
-            QMessageBox::critical(this, "데이터베이스 오류", 
-                "사용자 세션을 생성할 수 없습니다.");
-        }
+        // 사용자 이름이 입력되면 사진 촬영 진행
+        ui->snapShotButton->setEnabled(false);
+        ui->snapShotButton->setText("Uploading...");
+        ui->statusbar->showMessage(QString("촬영 중... 사용자: %1").arg(currentUserName), 2000);
+        
+        // 이미지 캡처
+        imageCapture->capture();
+        
     } else {
-        // 사용자가 취소한 경우 애플리케이션 종료
-        QApplication::quit();
+        // 사용자가 취소한 경우
+        ui->statusbar->showMessage("촬영이 취소되었습니다.", 2000);
     }
 }
 
-void MainWindow::onNewUserSession()
-{
-    // 현재 세션 종료
-    if (currentSessionId != -1) {
-        DatabaseManager::instance().closeUserSession(currentSessionId);
-    }
-    
-    // 카메라 중지
-    if (isCameraRunning) {
-        stopCamera();
-    }
-    
-    // 새로운 사용자 입력 다이얼로그 표시
-    showNameInputDialog();
-}
-
-void MainWindow::updateUIForUser()
-{
-    // 윈도우 제목 업데이트
-    setWindowTitle(QString("피부 분석 시스템 - %1").arg(currentUserName));
-    
-    // 상태바 메시지 업데이트
-    ui->statusbar->showMessage(QString("사용자: %1 | Server: %2").arg(currentUserName, serverUrl));
-    
-    // 새 사용자 버튼을 메뉴에 추가 (메뉴가 있는 경우)
-    if (ui->menuCAM) {
-        ui->menuCAM->clear();
-        QAction *newUserAction = ui->menuCAM->addAction("새 사용자");
-        connect(newUserAction, &QAction::triggered, this, &MainWindow::onNewUserSession);
-        
-        ui->menuCAM->addSeparator();
-        
-        // 통계 정보 표시 액션
-        QAction *statsAction = ui->menuCAM->addAction("통계 정보");
-        connect(statsAction, &QAction::triggered, [this]() {
-            DatabaseManager& dbManager = DatabaseManager::instance();
-            int totalUsers = dbManager.getTotalUsers();
-            int totalPhotos = dbManager.getTotalPhotos();
-            QDateTime lastActivity = dbManager.getLastActivity();
-            
-            QString statsMsg = QString(
-                "=== 피부 분석 시스템 통계 ===\n\n"
-                "총 사용자 수: %1명\n"
-                "총 사진 수: %2장\n"
-                "마지막 활동: %3\n"
-                "현재 사용자: %4"
-            ).arg(totalUsers)
-             .arg(totalPhotos)
-             .arg(lastActivity.isValid() ? lastActivity.toString("yyyy-MM-dd hh:mm:ss") : "없음")
-             .arg(currentUserName);
-            
-            QMessageBox::information(this, "시스템 통계", statsMsg);
-        });
-    }
-}
-
-QString MainWindow::generatePhotoFileName() const
-{
-    QDateTime now = QDateTime::currentDateTime();
-    QString timestamp = now.toString("yyyyMMdd_HHmmss");
-    return QString("%1_%2.jpg").arg(currentUserName, timestamp);
-}
-
-void MainWindow::savePhotoToDatabase(const QString& fileName, const QString& filePath)
-{
-    if (currentSessionId == -1) {
-        qWarning() << "No active user session for saving photo";
-        return;
-    }
-    
-    // 메타데이터 생성
-    QJsonObject metadata;
-    metadata["user_name"] = currentUserName;
-    metadata["session_id"] = currentSessionId;
-    metadata["device_id"] = QSysInfo::machineHostName();
-    metadata["server_url"] = serverUrl;
-    
-    QFileInfo fileInfo(filePath);
-    metadata["file_size"] = fileInfo.size();
-    
-    QJsonDocument metaDoc(metadata);
-    QString metaString = metaDoc.toJson(QJsonDocument::Compact);
-    
-    DatabaseManager& dbManager = DatabaseManager::instance();
-    int photoId = dbManager.savePhotoRecord(currentSessionId, fileName, filePath, metaString);
-    
-    if (photoId != -1) {
-        qDebug() << "Photo saved to database with ID:" << photoId;
-        
-        // 사진 저장 성공 메시지를 상태바에 표시
-        ui->statusbar->showMessage(QString("사진 저장됨: %1").arg(fileName), 3000);
-    } else {
-        qWarning() << "Failed to save photo to database";
-    }
-}

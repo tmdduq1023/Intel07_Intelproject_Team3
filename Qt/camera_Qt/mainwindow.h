@@ -14,6 +14,7 @@
 #include <QtMultimedia/QCameraImageCapture>
 #include <QtMultimediaWidgets/QCameraViewfinder>
 #include <QtMultimediaWidgets/QGraphicsVideoItem>
+#include "analysisresultdialog.h"
 #include "nameinputdialog.h"
 #include "databasemanager.h"
 
@@ -36,8 +37,9 @@ private slots:
     void displayCameraError();
     void onUploadFinished(QNetworkReply* reply);
     void onUploadProgress(qint64 bytesSent, qint64 bytesTotal);
+    void fetchAnalysisResult();
     void showNameInputDialog();
-    void onNewUserSession();
+    void initializeDatabase();
 
 private:
     Ui::MainWindow *ui;
@@ -51,11 +53,11 @@ private:
     // 서버 설정
     QString serverUrl;
     QString serverEndpoint;
+    QString raspUrl;
     int serverPort;
 
     bool isCameraRunning;
     QString currentUserName;
-    int currentSessionId;
     
     void setupCamera();
     void startCamera();
@@ -63,10 +65,6 @@ private:
     void uploadImageToServer(const QImage& image);
     void loadServerConfig();
     void setupUILayout();
-    void initializeDatabase();
-    void updateUIForUser();
-    QString generatePhotoFileName() const;
-    void savePhotoToDatabase(const QString& fileName, const QString& filePath);
 };
 
 #endif // MAINWINDOW_H
