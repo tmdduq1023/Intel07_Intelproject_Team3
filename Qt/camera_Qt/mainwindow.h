@@ -49,6 +49,10 @@ private:
     std::unique_ptr<QGraphicsVideoItem> videoItem;
     std::unique_ptr<QCameraImageCapture> imageCapture;
     std::unique_ptr<QNetworkAccessManager> networkManager;
+    
+    // 오버레이 아이템들
+    QGraphicsEllipseItem* faceGuideCircle;
+    QGraphicsTextItem* guideTextItem;
 
     // 서버 설정
     QString serverUrl;
@@ -58,6 +62,7 @@ private:
 
     bool isCameraRunning;
     QString currentUserName;
+    bool isNameEntered;
     
     void setupCamera();
     void startCamera();
@@ -65,6 +70,14 @@ private:
     void uploadImageToServer(const QImage& image);
     void loadServerConfig();
     void setupUILayout();
+    void setupInitialView();
+    void switchToCameraView();
+    void setupCameraOverlay();
+    void updateOverlayPosition();
+    void updateCameraViewSize();
+
+protected:
+    void resizeEvent(QResizeEvent *event) override;
 };
 
 #endif // MAINWINDOW_H

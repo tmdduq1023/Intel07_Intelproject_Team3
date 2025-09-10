@@ -14,24 +14,30 @@
 #include <QSettings>
 #include <QProgressDialog>
 #include <QTimer>
+#include <QLabel>
+#include <QVBoxLayout>
+#include <QHBoxLayout>
+#include <QLineEdit>
+#include <QPushButton>
+#include <QGraphicsEllipseItem>
+#include <QGraphicsTextItem>
+#include <QPen>
+#include <QBrush>
+#include <QFont>
+#include <QResizeEvent>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
     , ui(new Ui::MainWindow)
+    , faceGuideCircle(nullptr)
+    , guideTextItem(nullptr)
     , isCameraRunning(false)
+    , isNameEntered(false)
 {
     ui->setupUi(this);
 
     // 레이아웃 설정 (UI 파일에 레이아웃이 없는 경우)
     setupUILayout();
-
-    // QGraphicsView 설정
-    scene = std::make_unique<QGraphicsScene>(this);
-    ui->camViewer->setScene(scene.get());
-
-    // 비디오 아이템 생성
-    videoItem = std::make_unique<QGraphicsVideoItem>();
-    scene->addItem(videoItem.get());
 
     // 네트워크 매니저 초기화
     networkManager = std::make_unique<QNetworkAccessManager>(this);
@@ -43,14 +49,9 @@ MainWindow::MainWindow(QWidget *parent)
 
     // 데이터베이스 초기화
     initializeDatabase();
-    
-    // 카메라 초기화
-    setupCamera();
 
-    // 버튼 텍스트 수정
-    ui->camStartButton->setText("Start Camera");
-    ui->snapShotButton->setText("Upload Snapshot");
-    ui->snapShotButton->setEnabled(false);
+    // 초기 화면 설정 (이름 입력 단계)
+    setupInitialView();
 
     // 상태바에 서버 정보 표시
     ui->statusbar->showMessage(QString("Server: %1").arg(serverUrl));
@@ -142,9 +143,13 @@ void MainWindow::startCamera()
 
     camera->start();
 
-    // 비디오 아이템을 뷰에 맞게 조정
-    videoItem->setSize(ui->camViewer->size());
-    ui->camViewer->fitInView(videoItem.get(), Qt::KeepAspectRatio);
+    // 비디오 아이템을 scene 크기에 맞게 조정
+    if (videoItem && scene) {
+        QRectF sceneRect = scene->sceneRect();
+        videoItem->setSize(sceneRect.size());
+        videoItem->setPos(0, 0);  // scene 왼쪽 상단에 위치
+        ui->camViewer->fitInView(scene->sceneRect(), Qt::KeepAspectRatio);
+    }
 }
 
 void MainWindow::stopCamera()
@@ -170,6 +175,11 @@ void MainWindow::on_camStartButton_clicked()
 
 void MainWindow::on_snapShotButton_clicked()
 {
+    if (!isNameEntered) {
+        QMessageBox::warning(this, "오류", "먼저 이름을 입력해주세요.");
+        return;
+    }
+
     if (!imageCapture || !camera) {
         QMessageBox::warning(this, "Error", "Camera not ready!");
         return;
@@ -180,8 +190,13 @@ void MainWindow::on_snapShotButton_clicked()
         return;
     }
 
-    // 이름 입력 다이얼로그 표시
-    showNameInputDialog();
+    // 즉시 사진 촬영 진행
+    ui->snapShotButton->setEnabled(false);
+    ui->snapShotButton->setText("업로드 중...");
+    ui->statusbar->showMessage(QString("촬영 중... 사용자: %1").arg(currentUserName), 2000);
+    
+    // 이미지 캡처
+    imageCapture->capture();
 }
 
 void MainWindow::processCapturedImage(int requestId, const QImage& img)
@@ -338,41 +353,89 @@ void MainWindow::setupUILayout()
 
     // 메인 레이아웃 생성
     QVBoxLayout *mainLayout = new QVBoxLayout();
-    mainLayout->setContentsMargins(5, 5, 5, 5);
-    mainLayout->setSpacing(5);
+    mainLayout->setContentsMargins(10, 10, 10, 10);
+    mainLayout->setSpacing(15);  // 간격을 늘려서 버튼과 카메라 분리
 
-    // 카메라 뷰어 추가 (확장 가능하게)
+    // 카메라 뷰어를 중앙에 정렬
+    QHBoxLayout *cameraLayout = new QHBoxLayout();
+    cameraLayout->addStretch();  // 왼쪽 여백
+    
     ui->camViewer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
-    mainLayout->addWidget(ui->camViewer, 1);  // stretch factor 1
+    ui->camViewer->setMinimumSize(320, 240);  // 최소 크기 설정
+    ui->camViewer->setMaximumSize(800, 600);  // 최대 크기 설정
+    ui->camViewer->setAlignment(Qt::AlignCenter);  // 중앙 정렬
+    cameraLayout->addWidget(ui->camViewer);
+    
+    cameraLayout->addStretch();  // 오른쪽 여백
+    mainLayout->addLayout(cameraLayout, 0);  // stretch factor를 0으로 설정하여 고정 크기
 
-    // 버튼 레이아웃 생성
+    // 카메라와 버튼 사이에 여백 추가
+    mainLayout->addSpacing(20);
+
+    // 버튼 레이아웃 생성 (카메라 화면 밖에 배치)
     QHBoxLayout *buttonLayout = new QHBoxLayout();
-    buttonLayout->setSpacing(10);
+    buttonLayout->setSpacing(20);  // 버튼 간격 증가
 
     // 버튼들을 중앙에 배치
     buttonLayout->addStretch();  // 왼쪽 여백
 
-    // 버튼 크기 정책 설정
+    // 버튼 크기를 더 크게 설정
     ui->camStartButton->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
-    ui->camStartButton->setMinimumSize(120, 35);
-    ui->camStartButton->setMaximumSize(200, 50);
+    ui->camStartButton->setMinimumSize(150, 45);  // 크기 증가
+    ui->camStartButton->setMaximumSize(250, 60);
+    ui->camStartButton->setStyleSheet(
+        "QPushButton {"
+        "    background-color: #3498db;"
+        "    color: white;"
+        "    border: none;"
+        "    border-radius: 8px;"
+        "    font-size: 14px;"
+        "    font-weight: bold;"
+        "}"
+        "QPushButton:hover {"
+        "    background-color: #2980b9;"
+        "}"
+        "QPushButton:pressed {"
+        "    background-color: #21618c;"
+        "}"
+    );
     buttonLayout->addWidget(ui->camStartButton);
 
     ui->snapShotButton->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
-    ui->snapShotButton->setMinimumSize(120, 35);
-    ui->snapShotButton->setMaximumSize(200, 50);
+    ui->snapShotButton->setMinimumSize(150, 45);  // 크기 증가
+    ui->snapShotButton->setMaximumSize(250, 60);
+    ui->snapShotButton->setStyleSheet(
+        "QPushButton {"
+        "    background-color: #27ae60;"
+        "    color: white;"
+        "    border: none;"
+        "    border-radius: 8px;"
+        "    font-size: 14px;"
+        "    font-weight: bold;"
+        "}"
+        "QPushButton:hover {"
+        "    background-color: #2ecc71;"
+        "}"
+        "QPushButton:pressed {"
+        "    background-color: #239653;"
+        "}"
+        "QPushButton:disabled {"
+        "    background-color: #95a5a6;"
+        "}"
+    );
     buttonLayout->addWidget(ui->snapShotButton);
 
     buttonLayout->addStretch();  // 오른쪽 여백
 
     // 버튼 레이아웃을 메인 레이아웃에 추가
-    mainLayout->addLayout(buttonLayout);
+    mainLayout->addLayout(buttonLayout, 0);  // stretch factor 0으로 고정
 
     // centralwidget에 레이아웃 설정
     ui->centralwidget->setLayout(mainLayout);
 
-    // 윈도우 최소 크기 설정
-    setMinimumSize(640, 480);
+    // 윈도우 크기를 동적으로 조정 가능하게 설정
+    setMinimumSize(500, 400);  // 최소 크기 설정
+    resize(800, 650);  // 기본 크기 설정
 }
 
 void MainWindow::fetchAnalysisResult()
@@ -529,26 +592,410 @@ void MainWindow::initializeDatabase()
     qDebug() << statsMsg;
 }
 
-void MainWindow::showNameInputDialog()
+void MainWindow::setupInitialView()
 {
-    NameInputDialog dialog(this);
+    // 카메라 관련 UI 숨기기
+    ui->camViewer->hide();
+    ui->camStartButton->hide();
+    ui->snapShotButton->hide();
     
-    if (dialog.exec() == QDialog::Accepted) {
-        currentUserName = dialog.getUserName();
+    // 중앙 위젯에 이름 입력 단계 UI 추가
+    QWidget *nameInputWidget = new QWidget();
+    QVBoxLayout *nameLayout = new QVBoxLayout(nameInputWidget);
+    nameLayout->setAlignment(Qt::AlignCenter);
+    nameLayout->setSpacing(20);
+    
+    // 환영 메시지
+    QLabel *welcomeLabel = new QLabel("피부 개선 디스펜서에 오신 것을 환영합니다!");
+    welcomeLabel->setAlignment(Qt::AlignCenter);
+    welcomeLabel->setStyleSheet("font-size: 18px; font-weight: bold; color: #2c3e50; margin: 20px;");
+    nameLayout->addWidget(welcomeLabel);
+    
+    // 안내 메시지
+    QLabel *instructionLabel = new QLabel("피부 분석을 시작하기 전에 이름을 입력해주세요.");
+    instructionLabel->setAlignment(Qt::AlignCenter);
+    instructionLabel->setStyleSheet("font-size: 14px; color: #34495e; margin: 10px;");
+    nameLayout->addWidget(instructionLabel);
+    
+    // 이름 입력 필드
+    QLineEdit *nameLineEdit = new QLineEdit();
+    nameLineEdit->setPlaceholderText("이름을 입력하세요 (2-20자)");
+    nameLineEdit->setMaxLength(20);
+    nameLineEdit->setMaximumWidth(300);
+    nameLineEdit->setStyleSheet(
+        "QLineEdit {"
+        "    padding: 12px;"
+        "    border: 2px solid #bdc3c7;"
+        "    border-radius: 8px;"
+        "    font-size: 14px;"
+        "    background-color: white;"
+        "}"
+        "QLineEdit:focus {"
+        "    border-color: #3498db;"
+        "    outline: none;"
+        "}"
+    );
+    nameLayout->addWidget(nameLineEdit, 0, Qt::AlignCenter);
+    
+    // 버튼 레이아웃
+    QHBoxLayout *buttonLayout = new QHBoxLayout();
+    buttonLayout->setSpacing(15);
+    
+    QPushButton *startButton = new QPushButton("피부 분석 시작");
+    startButton->setMinimumSize(150, 45);
+    startButton->setStyleSheet(
+        "QPushButton {"
+        "    padding: 12px 24px;"
+        "    background-color: #27ae60;"
+        "    color: white;"
+        "    border: none;"
+        "    border-radius: 8px;"
+        "    font-size: 14px;"
+        "    font-weight: bold;"
+        "}"
+        "QPushButton:hover {"
+        "    background-color: #2ecc71;"
+        "}"
+        "QPushButton:pressed {"
+        "    background-color: #239653;"
+        "}"
+    );
+    
+    QPushButton *exitButton = new QPushButton("종료");
+    exitButton->setMinimumSize(100, 45);
+    exitButton->setStyleSheet(
+        "QPushButton {"
+        "    padding: 12px 24px;"
+        "    background-color: #e74c3c;"
+        "    color: white;"
+        "    border: none;"
+        "    border-radius: 8px;"
+        "    font-size: 14px;"
+        "}"
+        "QPushButton:hover {"
+        "    background-color: #c0392b;"
+        "}"
+        "QPushButton:pressed {"
+        "    background-color: #a93226;"
+        "}"
+    );
+    
+    buttonLayout->addStretch();
+    buttonLayout->addWidget(startButton);
+    buttonLayout->addWidget(exitButton);
+    buttonLayout->addStretch();
+    
+    nameLayout->addLayout(buttonLayout);
+    nameLayout->addStretch();
+    
+    // 현재 중앙 위젯을 nameInputWidget으로 교체
+    setCentralWidget(nameInputWidget);
+    
+    // 연결 설정
+    connect(startButton, &QPushButton::clicked, [this, nameLineEdit]() {
+        QString name = nameLineEdit->text().trimmed();
+        if (name.length() < 2) {
+            QMessageBox::warning(this, "입력 오류", "이름은 최소 2자 이상 입력해주세요.");
+            nameLineEdit->setFocus();
+            return;
+        }
+        if (name.length() > 20) {
+            QMessageBox::warning(this, "입력 오류", "이름은 최대 20자까지 입력 가능합니다.");
+            nameLineEdit->setFocus();
+            return;
+        }
+        
+        currentUserName = name;
+        isNameEntered = true;
         
         qDebug() << "User name entered:" << currentUserName;
+        ui->statusbar->showMessage(QString("사용자: %1님, 환영합니다!").arg(currentUserName), 3000);
         
-        // 사용자 이름이 입력되면 사진 촬영 진행
-        ui->snapShotButton->setEnabled(false);
-        ui->snapShotButton->setText("Uploading...");
-        ui->statusbar->showMessage(QString("촬영 중... 사용자: %1").arg(currentUserName), 2000);
-        
-        // 이미지 캡처
-        imageCapture->capture();
-        
-    } else {
-        // 사용자가 취소한 경우
-        ui->statusbar->showMessage("촬영이 취소되었습니다.", 2000);
+        // 카메라 화면으로 전환
+        switchToCameraView();
+    });
+    
+    connect(exitButton, &QPushButton::clicked, this, &QWidget::close);
+    
+    connect(nameLineEdit, &QLineEdit::returnPressed, [startButton]() {
+        startButton->click();
+    });
+    
+    nameLineEdit->setFocus();
+}
+
+void MainWindow::switchToCameraView()
+{
+    // 새로운 중앙 위젯 생성 및 UI 설정
+    QWidget *newCentralWidget = new QWidget();
+    setCentralWidget(newCentralWidget);
+    
+    // 새로운 UI 요소들 생성
+    QGraphicsView *camViewer = new QGraphicsView(newCentralWidget);
+    QPushButton *camStartButton = new QPushButton("카메라 시작", newCentralWidget);
+    QPushButton *snapShotButton = new QPushButton("사진 촬영", newCentralWidget);
+    
+    // UI 포인터 업데이트
+    ui->camViewer = camViewer;
+    ui->camStartButton = camStartButton;
+    ui->snapShotButton = snapShotButton;
+    ui->centralwidget = newCentralWidget;
+    
+    // 레이아웃 설정
+    QVBoxLayout *mainLayout = new QVBoxLayout(newCentralWidget);
+    mainLayout->setContentsMargins(10, 10, 10, 10);
+    mainLayout->setSpacing(15);  // 간격을 늘려서 버튼과 카메라 분리
+
+    // 카메라 뷰어를 중앙에 정렬
+    QHBoxLayout *cameraLayout = new QHBoxLayout();
+    cameraLayout->addStretch();  // 왼쪽 여백
+    
+    camViewer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    camViewer->setMinimumSize(320, 240);  // 최소 크기 설정
+    camViewer->setMaximumSize(800, 600);  // 최대 크기 설정
+    camViewer->setAlignment(Qt::AlignCenter);  // 중앙 정렬
+    cameraLayout->addWidget(camViewer);
+    
+    cameraLayout->addStretch();  // 오른쪽 여백
+    mainLayout->addLayout(cameraLayout, 0);  // stretch factor를 0으로 설정하여 고정 크기
+
+    // 카메라와 버튼 사이에 여백 추가
+    mainLayout->addSpacing(20);
+
+    // 버튼 레이아웃 (카메라 화면 밖에 배치)
+    QHBoxLayout *buttonLayout = new QHBoxLayout();
+    buttonLayout->setSpacing(20);
+    buttonLayout->addStretch();
+    
+    camStartButton->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
+    camStartButton->setMinimumSize(150, 45);
+    camStartButton->setMaximumSize(250, 60);
+    camStartButton->setStyleSheet(
+        "QPushButton {"
+        "    background-color: #3498db;"
+        "    color: white;"
+        "    border: none;"
+        "    border-radius: 8px;"
+        "    font-size: 14px;"
+        "    font-weight: bold;"
+        "}"
+        "QPushButton:hover {"
+        "    background-color: #2980b9;"
+        "}"
+        "QPushButton:pressed {"
+        "    background-color: #21618c;"
+        "}"
+    );
+    buttonLayout->addWidget(camStartButton);
+
+    snapShotButton->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
+    snapShotButton->setMinimumSize(150, 45);
+    snapShotButton->setMaximumSize(250, 60);
+    snapShotButton->setEnabled(false);
+    snapShotButton->setStyleSheet(
+        "QPushButton {"
+        "    background-color: #27ae60;"
+        "    color: white;"
+        "    border: none;"
+        "    border-radius: 8px;"
+        "    font-size: 14px;"
+        "    font-weight: bold;"
+        "}"
+        "QPushButton:hover {"
+        "    background-color: #2ecc71;"
+        "}"
+        "QPushButton:pressed {"
+        "    background-color: #239653;"
+        "}"
+        "QPushButton:disabled {"
+        "    background-color: #95a5a6;"
+        "}"
+    );
+    buttonLayout->addWidget(snapShotButton);
+    
+    buttonLayout->addStretch();
+    mainLayout->addLayout(buttonLayout, 0);
+    
+    // QGraphicsView 설정
+    scene = std::make_unique<QGraphicsScene>(this);
+    camViewer->setScene(scene.get());
+    
+    // 비디오 아이템 생성
+    videoItem = std::make_unique<QGraphicsVideoItem>();
+    scene->addItem(videoItem.get());
+    
+    // 시그널 연결
+    connect(camStartButton, &QPushButton::clicked, this, &MainWindow::on_camStartButton_clicked);
+    connect(snapShotButton, &QPushButton::clicked, this, &MainWindow::on_snapShotButton_clicked);
+    
+    // 카메라 오버레이 설정 (카메라 초기화보다 먼저)
+    setupCameraOverlay();
+    
+    // 카메라 초기화
+    setupCamera();
+    
+    // 윈도우 크기를 동적으로 조정 가능하게 설정
+    setMinimumSize(500, 400);  // 최소 크기 설정
+    resize(800, 650);  // 기본 크기 설정
+    
+    // 상태바에 현재 사용자 표시
+    ui->statusbar->showMessage(QString("현재 사용자: %1").arg(currentUserName), 5000);
+}
+
+void MainWindow::showNameInputDialog()
+{
+    // 이 메소드는 더 이상 사용되지 않지만, 기존 호출을 위해 유지
+    // 대신 즉시 사진 촬영 진행
+    if (!isNameEntered) {
+        QMessageBox::warning(this, "오류", "먼저 이름을 입력해주세요.");
+        return;
+    }
+    
+    if (!imageCapture || !camera) {
+        QMessageBox::warning(this, "Error", "Camera not ready!");
+        return;
+    }
+
+    if (camera->state() != QCamera::ActiveState) {
+        QMessageBox::warning(this, "Error", "Camera is not running!");
+        return;
+    }
+    
+    // 사진 촬영 진행
+    ui->snapShotButton->setEnabled(false);
+    ui->snapShotButton->setText("업로드 중...");
+    ui->statusbar->showMessage(QString("촬영 중... 사용자: %1").arg(currentUserName), 2000);
+    
+    // 이미지 캡처
+    imageCapture->capture();
+}
+
+// 오버레이 관련 함수들
+void MainWindow::setupCameraOverlay()
+{
+    if (!scene) {
+        return;
+    }
+    
+    // Scene 크기를 카메라 뷰 크기에 맞게 동적 설정
+    updateCameraViewSize();
+    
+    // 얼굴 가이드 원 생성
+    faceGuideCircle = new QGraphicsEllipseItem();
+    
+    // 원의 크기를 뷰 크기에 비례하여 설정
+    QSize viewSize = ui->camViewer->size();
+    qreal circleSize = qMin(viewSize.width(), viewSize.height()) * 0.6;  // 뷰 크기의 60%
+    
+    QRectF sceneRect = scene->sceneRect();
+    qreal centerX = sceneRect.center().x();
+    qreal centerY = sceneRect.center().y()-25;  // 약간 위쪽으로 이동
+    
+    faceGuideCircle->setRect(centerX - circleSize/2, centerY - circleSize/2, circleSize, circleSize);
+    
+    // 원의 스타일 설정
+    QPen circlePen(QColor(0, 255, 0, 220), 4);  // 더 진한 초록색, 4픽셀 두께
+    circlePen.setStyle(Qt::DashLine);  // 점선 스타일
+    faceGuideCircle->setPen(circlePen);
+    faceGuideCircle->setBrush(QBrush(Qt::NoBrush));  // 내부는 투명
+    
+    // Z-order 설정 (비디오 위에 표시)
+    faceGuideCircle->setZValue(10);
+    
+    scene->addItem(faceGuideCircle);
+    
+    // 안내 텍스트 생성
+    guideTextItem = new QGraphicsTextItem("원에 얼굴을 맞춰주세요");
+    
+    // 텍스트 폰트와 색상 설정
+    QFont font("Arial", 18, QFont::Bold);  // 폰트 크기 증가 (16 → 18)
+    guideTextItem->setFont(font);
+    guideTextItem->setDefaultTextColor(QColor(0, 255, 0));  // 초록색 텍스트 (가독성 향상)
+    
+    // 텍스트 위치 설정 (원 아래쪽)
+    QRectF textRect = guideTextItem->boundingRect();
+    qreal textX = centerX - textRect.width() / 2;
+    qreal textY = centerY + circleSize/2 + 20;
+    guideTextItem->setPos(textX, textY);
+    
+    // Z-order 설정
+    guideTextItem->setZValue(10);
+    
+    scene->addItem(guideTextItem);
+}
+
+void MainWindow::updateOverlayPosition()
+{
+    if (!faceGuideCircle || !guideTextItem || !scene || !ui->camViewer) {
+        return;
+    }
+    
+    // Scene 크기 업데이트
+    updateCameraViewSize();
+    
+    // 현재 뷰 크기에 맞춰 오버레이 크기 및 위치 재조정
+    QRectF sceneRect = scene->sceneRect();
+    QSize viewSize = ui->camViewer->size();
+    qreal circleSize = qMin(viewSize.width(), viewSize.height()) * 0.6;  // 뷰 크기의 60%
+    
+    qreal centerX = sceneRect.center().x();
+    qreal centerY = sceneRect.center().y()-25;
+    
+    // 원 위치 및 크기 업데이트
+    faceGuideCircle->setRect(centerX - circleSize/2, centerY - circleSize/2, circleSize, circleSize);
+    
+    // 텍스트 크기를 뷰 크기에 맞게 조정
+    QFont font = guideTextItem->font();
+    int fontSize = qMax(12, qMin(viewSize.width(), viewSize.height()) / 25);  // 최소 12px, 뷰 크기에 비례
+    font.setPointSize(fontSize);
+    guideTextItem->setFont(font);
+    
+    // 텍스트 위치 업데이트
+    QRectF textRect = guideTextItem->boundingRect();
+    qreal textX = centerX - textRect.width() / 2;
+    qreal textY = centerY + circleSize/2 + 20;
+    guideTextItem->setPos(textX, textY);
+}
+
+void MainWindow::updateCameraViewSize()
+{
+    if (!scene || !ui->camViewer) {
+        return;
+    }
+    
+    // 카메라 뷰 크기에 맞게 Scene 크기 설정
+    QSize viewSize = ui->camViewer->size();
+    QRectF sceneRect = QRectF(0, 0, viewSize.width(), viewSize.height());
+    scene->setSceneRect(sceneRect);
+    
+    // 배경 업데이트 (기존 배경이 있으면 제거 후 새로 생성)
+    QList<QGraphicsItem*> items = scene->items();
+    for (QGraphicsItem* item : items) {
+        if (item->zValue() == -1) {  // 배경 아이템
+            scene->removeItem(item);
+            delete item;
+            break;
+        }
+    }
+    
+    // 새로운 크기의 배경 추가
+    QGraphicsRectItem* backgroundRect = scene->addRect(sceneRect, QPen(Qt::NoPen), QBrush(QColor(50, 50, 50)));
+    backgroundRect->setZValue(-1);  // 가장 뒤에 배치
+    
+    // 비디오 아이템 크기도 함께 업데이트
+    if (videoItem) {
+        videoItem->setSize(sceneRect.size());
+        videoItem->setPos(0, 0);
     }
 }
 
+void MainWindow::resizeEvent(QResizeEvent *event)
+{
+    QMainWindow::resizeEvent(event);
+    
+    // 윈도우 크기 변경 시 오버레이 위치와 크기 자동 조정
+    if (faceGuideCircle && guideTextItem && scene && ui->camViewer) {
+        // 약간의 지연을 두고 업데이트 (레이아웃이 완료된 후)
+        QTimer::singleShot(10, this, &MainWindow::updateOverlayPosition);
+    }
+}

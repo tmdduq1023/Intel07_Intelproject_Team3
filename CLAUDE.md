@@ -6,57 +6,40 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is a skin improvement dispenser project (피부 개선 디스펜서) that uses camera technology to measure skin condition (moisture, elasticity, pigmentation, pore analysis) and dispense appropriate cosmetic products in the right amounts.
 
-## Code Architecture
-
-The project follows a multi-tier architecture with distinct components:
-
-- **AI/**: Machine learning models for skin analysis using PyTorch and ResNet-50 backbone
-- **Server/**: Flask-based server components for image processing and hardware communication
-- **Qt/**: C++ Qt GUI application for user interface
-- **HW/**: Hardware control code (placeholder for Raspberry Pi integration)
-
-## Core Components
-
-### AI Models (`AI/`)
-- `model.py`: Core PyTorch model using ResNet-50 for skin feature prediction
-- `train_roi_detector.py`: Training scripts for region-of-interest detection
-- `predict_all_features.py`: Inference pipeline for skin feature analysis
-- `create_coco_dataset.py`: COCO dataset creation utilities
-- Uses personalized embeddings and multi-feature prediction (moisture, elasticity, pigmentation, pore)
-
-### Server Architecture (`Server/`)
-- `node.py`: Main Flask server for receiving images from Qt client
-- `rasp.py`: Raspberry Pi communication server with UART serial interface
-- Communication flow: Qt → node.py → rasp.py → Hardware
-- Handles JSON data with skin analysis results: forehead, left/right cheek, chin, lip regions
-
-### Qt GUI (`Qt/camera_Qt/`)
-- C++ Qt application with camera integration
-- Communicates with Flask servers via HTTP POST requests
-- Handles image capture and display of analysis results
-
 ## Development Commands
 
 ### Server Development
 ```bash
-# Run main image processing server
+# Activate virtual environment
 cd Server
+source venv/bin/activate
+
+# Run main image processing server (receives images from Qt)
 python3 node.py
 
-# Run Raspberry Pi communication server  
-cd Server
+# Run Raspberry Pi communication server (sends data to hardware)
 python3 rasp.py
 ```
 
-### AI Model Training
+### AI Model Training and Inference
 ```bash
-# Train ROI detection model
 cd AI
-python3 train_roi_detector.py
 
-# Run feature prediction
-cd AI  
+# Train ROI detection models
+python3 train_roi_detector.py
+python3 train_skin_roi_v4.py
+
+# Run inference on skin features
 python3 predict_all_features.py
+python3 infer_roi.py
+
+# Evaluate models
+python3 evaluate_skin_roi.py
+python3 evaluation.py
+
+# Dataset utilities
+python3 create_coco_dataset.py
+python3 prepare_roi_dataset.py
 ```
 
 ### Qt Application Build
@@ -64,42 +47,98 @@ python3 predict_all_features.py
 cd Qt/camera_Qt
 qmake camera_Qt.pro
 make
+
+# Run the application
+./camera_Qt
 ```
 
 ### Docker Deployment
 ```bash
-# Build Docker image for AI training
+# Build Docker image for AI training (PyTorch 2.0.1 with CUDA 11.8)
 docker build -t skin-analyzer .
 
-# Run AI training in container
+# Run AI training in container with GPU support
 docker run --gpus all skin-analyzer
 ```
 
-## Key Dependencies
+## Architecture Overview
 
-### Python Dependencies
-- **PyTorch**: Deep learning framework for AI models
-- **Flask**: Web framework for server components
-- **Pillow**: Image processing
-- **pyserial**: UART communication with hardware
-- **requests**: HTTP communication between servers
+The system implements a multi-tier distributed architecture with four main components:
 
-### System Dependencies  
-- **Qt5/Qt6**: For GUI application
-- **CUDA**: For GPU-accelerated AI training
-- **Docker**: For containerized deployment
+### 1. Qt GUI Client (`Qt/camera_Qt/`)
+- **Framework**: C++17 with Qt5/Qt6 (core, gui, widgets, multimedia, network, sql)
+- **Components**: Camera capture, user interface, SQLite database integration, HTTP client
+- **Files**: `mainwindow.cpp`, `databasemanager.cpp`, `analysisresultdialog.cpp`, `nameinputdialog.cpp`
+- **Communication**: HTTP POST requests to Flask servers
 
-## Network Architecture
+### 2. Image Processing Server (`Server/node.py`)
+- **Framework**: Flask web server
+- **Purpose**: Receives images from Qt client, processes with AI models, forwards results
+- **Endpoints**: `/upload` (receives image files)
+- **Output**: Sends JSON analysis results to Raspberry Pi server
 
-The system uses multiple network endpoints:
-- Qt client uploads images to `node.py` at port 5000 (`/upload`)
-- `node.py` forwards analysis results to `rasp.py` at port 5000 (`/receive`)
-- `rasp.py` communicates with hardware via UART serial interface
-- IP configuration: Server at 192.168.0.90, Raspberry Pi communication enabled
+### 3. Hardware Communication Server (`Server/rasp.py`)
+- **Framework**: Flask web server with UART serial communication
+- **Purpose**: Receives analysis results and controls dispensing hardware
+- **Endpoints**: `/receive` (receives JSON analysis data)
+- **Hardware**: UART communication via `/dev/serial0` at 9600 baud
+- **Protocol**: Sends 14 metrics as "@"-delimited string to hardware
 
-## Data Flow
+### 4. AI Models (`AI/`)
+- **Framework**: PyTorch with ResNet-50 backbone
+- **Core Model**: `PersonalizedSkinModel` with person embeddings for personalized analysis
+- **Features**: Multi-region skin analysis (forehead, left/right cheek, chin, lip)
+- **Metrics**: Moisture, elasticity, pigmentation, pore analysis (14 total values)
+- **Training**: Multiple model variants (`v2`, `v3`, `v4`) with separate models for different features
 
-1. Qt GUI captures image and uploads via HTTP POST
-2. Server processes image and runs AI analysis
-3. Analysis results (14 metrics across 5 facial regions) sent to Raspberry Pi
-4. Raspberry Pi controls dispensing hardware via UART protocol
+## Data Flow Architecture
+
+```
+Qt Client → [HTTP POST /upload] → node.py → [AI Processing] → [HTTP POST /receive] → rasp.py → [UART] → Hardware
+```
+
+1. **Image Capture**: Qt GUI captures facial image via camera
+2. **Upload**: Image uploaded to `node.py` Flask server at port 5000
+3. **AI Analysis**: Server processes image using PyTorch models for skin feature detection
+4. **Result Forwarding**: Analysis results (JSON) sent to `rasp.py` at 192.168.0.90:5000
+5. **Hardware Control**: `rasp.py` converts JSON to UART protocol and controls dispensing hardware
+
+## Network Configuration
+
+- **Qt Client**: Connects to image processing server
+- **Image Server**: `node.py` on port 5000, endpoint `/upload`
+- **Hardware Server**: `rasp.py` on 192.168.0.90:5000, endpoint `/receive`
+- **UART**: Serial communication at `/dev/serial0`, 9600 baud rate
+- **Protocol**: 14 numerical values separated by "@" symbols
+
+## AI Model Architecture
+
+### Core Models
+- **PersonalizedSkinModel**: ResNet-50 backbone with person embeddings (32-dim)
+- **Dataset**: PersonDataset with JSON profiles and image paths
+- **Features**: Multi-feature prediction across 5 facial regions
+- **Training Scripts**: Multiple versions (v2, v3, v4) with different architectures
+
+### Model Variants
+- **ROI Detection**: `train_roi_detector.py`, `train_roi_detector_ssdlite.py`
+- **Skin Analysis**: `train_skin_roi_v4.py` (latest), `train_skin_roi_v3.py`, `train_skin_roi_v2_1.py`
+- **Personalized Models**: `train_personalized.py`, `evaluate_personalized.py`
+- **Separate Models**: `train_separate_models.py` for individual feature prediction
+
+## Development Environment
+
+### Python Environment
+- **Python Version**: 3.10.12
+- **Virtual Environment**: `Server/venv/` (pre-configured with Flask, requests, pyserial)
+- **AI Dependencies**: PyTorch 2.0.1, torchvision, Pillow, numpy, tqdm
+
+### Qt Environment  
+- **Qt Version**: Qt5/Qt6 compatible
+- **C++ Standard**: C++17
+- **Modules**: core, gui, widgets, multimedia, multimediawidgets, network, sql
+- **Build System**: qmake + make
+
+### Hardware Requirements
+- **GPU**: CUDA 11.8 support for AI training
+- **Serial Port**: `/dev/serial0` for UART communication (Raspberry Pi)
+- **Camera**: Compatible with Qt multimedia framework
