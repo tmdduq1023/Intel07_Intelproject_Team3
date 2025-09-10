@@ -8,7 +8,7 @@ import random
 DESTINATION_URL = "http://192.168.0.90:5000/receive"  # http:// 추가 및 포트 5000
 app = Flask(__name__)
 
-test = True
+TEST = True
 
 
 def send_json(data: dict) -> None:
@@ -38,7 +38,7 @@ def recieve_image():
         return jsonify({"error": "No selected file"}), 400
 
     if file:
-        if not test:
+        if not TEST:
             # uploads 디렉터리 생성
             upload_dir = "uploads"
             if not os.path.exists(upload_dir):
@@ -46,7 +46,7 @@ def recieve_image():
 
             filename = secure_filename(file.filename)
             file.save(os.path.join(upload_dir, filename))
-        elif test:
+        elif TEST:
             random_test_data: dict = {
                 "forehead": {
                     "moisture": random.randint(0, 100),
@@ -87,15 +87,6 @@ def recieve_image():
 
     return jsonify({"error": "Upload failed"}), 500
 
-
-# 테스트 데이터
-test_data = {
-    "forehead": {"moisture": 70, "elasticity": 80, "pigmentation": 60},
-    "l_check": {"moisture": 75, "elasticity": 85, "pigmentation": 65, "pore": 70},
-    "r_check": {"moisture": 72, "elasticity": 82, "pigmentation": 62, "pore": 68},
-    "chin": {"moisture": 68, "elasticity": 78},
-    "lib": {"elasticity": 90},
-}
 
 if __name__ == "__main__":
     # send_json(test_data)
