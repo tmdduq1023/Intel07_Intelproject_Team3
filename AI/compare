@@ -1,0 +1,180 @@
+{ 1012 //
+  "chin": {
+    "eq_chin_elasticity_Q0": "42.64",
+    "eq_chin_moisture": "67.68"
+  },
+    "chin": {
+    "eq_chin_elasticity_Q0": "44.09",
+    "eq_chin_moisture": "67.86"
+  },
+  "chin": {
+    "eq_chin_elasticity_Q0": "46.04",
+    "eq_chin_moisture": "64.67"
+  },
+  
+  
+  
+  
+  "lips": {
+    "ann_lip_dryness": 2
+  },
+   "lips": {
+    "ann_lip_dryness": 2
+  },
+  "lips": {
+    "ann_lip_dryness": 2
+  },
+  
+  
+  "forehead": {
+    "eq_forehead_elasticity_Q0": "48.36",
+    "eq_forehead_moisture": "60.11",
+    "ann_forehead_pigmentation": 0
+  },
+    "forehead": {
+    "eq_forehead_elasticity_Q0": "48.74",
+    "eq_forehead_moisture": "61.75",
+    "ann_forehead_pigmentation": 1
+  },
+    "forehead": {
+    "eq_forehead_elasticity_Q0": "49.49",
+    "eq_forehead_moisture": "62.69",
+    "ann_forehead_pigmentation": 1
+  },
+  
+  
+  "left_cheek": {
+    "eq_l_cheek_elasticity_Q0": "49.50",
+    "eq_l_cheek_moisture": "68.39",
+    "eq_l_cheek_pore": "286.86",
+    "ann_l_cheek_pigmentation": 4
+  },
+    "left_cheek": {
+    "eq_l_cheek_elasticity_Q0": "51.06",
+    "eq_l_cheek_moisture": "69.97",
+    "eq_l_cheek_pore": "308.56",
+    "ann_l_cheek_pigmentation": 4
+  },
+  "left_cheek": {
+    "eq_l_cheek_elasticity_Q0": "51.88",
+    "eq_l_cheek_moisture": "67.70",
+    "eq_l_cheek_pore": "243.39",
+    "ann_l_cheek_pigmentation": 4
+  },
+  
+  
+  "right_cheek": {
+    "eq_r_cheek_elasticity_Q0": "52.85",
+    "eq_r_cheek_moisture": "68.85",
+    "eq_r_cheek_pore": "289.31",
+    "ann_r_cheek_pigmentation": 3
+  }
+}
+  "right_cheek": {
+    "eq_r_cheek_elasticity_Q0": "52.99",
+    "eq_r_cheek_moisture": "71.04",
+    "eq_r_cheek_pore": "319.77",
+    "ann_r_cheek_pigmentation": 4
+  }
+}
+  "right_cheek": {
+    "eq_r_cheek_elasticity_Q0": "53.10",
+    "eq_r_cheek_moisture": "67.96",
+    "eq_r_cheek_pore": "335.75",
+    "ann_r_cheek_pigmentation": 4
+  }
+}
+
+
+------
+1004
+
+{
+  "forehead": {
+    "eq_forehead_elasticity_Q0": "48.62",
+    "eq_forehead_moisture": "57.37",
+    "ann_forehead_pigmentation": 1
+  },
+  "forehead": {
+    "eq_forehead_elasticity_Q0": "49.04",
+    "eq_forehead_moisture": "58.48",
+    "ann_forehead_pigmentation": 1
+  },
+  "forehead": {
+    "eq_forehead_elasticity_Q0": "48.04",
+    "eq_forehead_moisture": "59.82",
+    "ann_forehead_pigmentation": 1
+  },
+
+
+
+  "chin": {
+    "eq_chin_elasticity_Q0": "44.63",
+    "eq_chin_moisture": "63.98"
+  },
+  "chin": {
+    "eq_chin_elasticity_Q0": "48.06",
+    "eq_chin_moisture": "61.10"
+  },
+  "chin": {
+    "eq_chin_elasticity_Q0": "45.35",
+    "eq_chin_moisture": "62.71"
+  },
+
+
+
+  "lips": {
+    "ann_lip_dryness": 2
+  },
+  "lips": {
+    "ann_lip_dryness": 2
+  },
+  "lips": {
+    "ann_lip_dryness": 2
+  },
+
+
+  "left_cheek": {
+    "eq_l_cheek_elasticity_Q0": "52.98",
+    "eq_l_cheek_moisture": "60.40",
+    "eq_l_cheek_pore": "751.12",
+    "ann_l_cheek_pigmentation": 1
+  },
+  "left_cheek": {
+    "eq_l_cheek_elasticity_Q0": "48.86",
+    "eq_l_cheek_moisture": "61.96",
+    "eq_l_cheek_pore": "836.56",
+    "ann_l_cheek_pigmentation": 2
+  },
+  "left_cheek": {
+    "eq_l_cheek_elasticity_Q0": "49.55",
+    "eq_l_cheek_moisture": "61.41",
+    "eq_l_cheek_pore": "906.25",
+    "ann_l_cheek_pigmentation": 2
+  }
+
+
+  
+  "right_cheek": {
+    "eq_r_cheek_elasticity_Q0": "52.33",
+    "eq_r_cheek_moisture": "62.20",
+    "eq_r_cheek_pore": "795.93",
+    "ann_r_cheek_pigmentation": 2
+  }
+  "right_cheek": {
+    "eq_r_cheek_elasticity_Q0": "49.25",
+    "eq_r_cheek_moisture": "62.90",
+    "eq_r_cheek_pore": "905.56",
+    "ann_r_cheek_pigmentation": 2
+  }
+  "right_cheek": {
+    "eq_r_cheek_elasticity_Q0": "52.97",
+    "eq_r_cheek_moisture": "62.77",
+    "eq_r_cheek_pore": "833.93",
+    "ann_r_cheek_pigmentation": 1
+  },
+
+
+}
+
+

@@ -10,7 +10,7 @@ from pathlib import Path
 
 # Assumes utils_v2.py is in the same directory or accessible
 try:
-    from utils_v2 import get_retinanet_model
+    from utils_v3 import get_retinanet_model
 except ImportError:
     print("Error: Could not import get_retinanet_model from utils_v2.py.")
     print("Please ensure utils_v2.py is in the same directory.")
