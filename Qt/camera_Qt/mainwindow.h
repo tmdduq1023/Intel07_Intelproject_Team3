@@ -75,6 +75,7 @@ private:
     void setupCameraOverlay();
     void updateOverlayPosition();
     void updateCameraViewSize();
+    void setupWindowSizing();
 
 protected:
     void resizeEvent(QResizeEvent *event) override;

@@ -25,6 +25,9 @@
 #include <QBrush>
 #include <QFont>
 #include <QResizeEvent>
+#include <QApplication>
+#include <QDesktopWidget>
+#include <QScreen>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -35,6 +38,9 @@ MainWindow::MainWindow(QWidget *parent)
     , isNameEntered(false)
 {
     ui->setupUi(this);
+
+    // 화면 크기에 맞춰 창을 최대화하고 동적 크기 조정 가능하게 설정
+    setupWindowSizing();
 
     // 레이아웃 설정 (UI 파일에 레이아웃이 없는 경우)
     setupUILayout();
@@ -88,6 +94,34 @@ void MainWindow::loadServerConfig()
 
     qDebug() << "Server URL:" << serverUrl + serverEndpoint;
     qDebug() << "Rasp URL:" << raspUrl;
+}
+
+void MainWindow::setupWindowSizing()
+{
+    // 현재 사용 가능한 화면 크기 가져오기
+    QScreen *screen = QApplication::primaryScreen();
+    if (!screen) return;
+    
+    QRect screenGeometry = screen->availableGeometry();
+    
+    // 화면 크기의 90%로 창 크기 설정 (작업표시줄과 기타 UI 요소를 위한 여백)
+    int windowWidth = static_cast<int>(screenGeometry.width() * 0.9);
+    int windowHeight = static_cast<int>(screenGeometry.height() * 0.9);
+    
+    // 최소 크기 설정
+    setMinimumSize(600, 500);
+    
+    // 창 크기 설정
+    resize(windowWidth, windowHeight);
+    
+    // 창을 화면 중앙에 위치
+    int x = screenGeometry.x() + (screenGeometry.width() - windowWidth) / 2;
+    int y = screenGeometry.y() + (screenGeometry.height() - windowHeight) / 2;
+    move(x, y);
+    
+    qDebug() << "Screen geometry:" << screenGeometry;
+    qDebug() << "Window size set to:" << windowWidth << "x" << windowHeight;
+    qDebug() << "Window positioned at:" << x << "," << y;
 }
 
 void MainWindow::setupCamera()
@@ -353,36 +387,32 @@ void MainWindow::setupUILayout()
 
     // 메인 레이아웃 생성
     QVBoxLayout *mainLayout = new QVBoxLayout();
-    mainLayout->setContentsMargins(10, 10, 10, 10);
-    mainLayout->setSpacing(15);  // 간격을 늘려서 버튼과 카메라 분리
+    mainLayout->setContentsMargins(15, 15, 15, 15);
+    mainLayout->setSpacing(20);  // 간격을 늘려서 버튼과 카메라 분리
 
-    // 카메라 뷰어를 중앙에 정렬
-    QHBoxLayout *cameraLayout = new QHBoxLayout();
-    cameraLayout->addStretch();  // 왼쪽 여백
-    
+    // 카메라 뷰어를 동적 크기 조정 가능하게 설정
     ui->camViewer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
-    ui->camViewer->setMinimumSize(320, 240);  // 최소 크기 설정
-    ui->camViewer->setMaximumSize(800, 600);  // 최대 크기 설정
+    ui->camViewer->setMinimumSize(480, 360);  // 최소 크기를 더 크게 설정 (16:9 비율)
+    ui->camViewer->setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);  // 최대 크기 제한 제거
     ui->camViewer->setAlignment(Qt::AlignCenter);  // 중앙 정렬
-    cameraLayout->addWidget(ui->camViewer);
     
-    cameraLayout->addStretch();  // 오른쪽 여백
-    mainLayout->addLayout(cameraLayout, 0);  // stretch factor를 0으로 설정하여 고정 크기
+    // 카메라 뷰어를 메인 레이아웃에 직접 추가하여 공간을 최대한 활용
+    mainLayout->addWidget(ui->camViewer, 1);  // stretch factor를 1로 설정하여 확장 가능
 
     // 카메라와 버튼 사이에 여백 추가
-    mainLayout->addSpacing(20);
+    mainLayout->addSpacing(15);
 
     // 버튼 레이아웃 생성 (카메라 화면 밖에 배치)
     QHBoxLayout *buttonLayout = new QHBoxLayout();
-    buttonLayout->setSpacing(20);  // 버튼 간격 증가
+    buttonLayout->setSpacing(30);  // 버튼 간격 더 증가
 
     // 버튼들을 중앙에 배치
     buttonLayout->addStretch();  // 왼쪽 여백
 
-    // 버튼 크기를 더 크게 설정
+    // 버튼 크기를 동적으로 조정 가능하게 설정
     ui->camStartButton->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
-    ui->camStartButton->setMinimumSize(150, 45);  // 크기 증가
-    ui->camStartButton->setMaximumSize(250, 60);
+    ui->camStartButton->setMinimumSize(180, 50);  // 크기 더 증가
+    ui->camStartButton->setMaximumSize(300, 70);  // 최대 크기도 증가
     ui->camStartButton->setStyleSheet(
         "QPushButton {"
         "    background-color: #3498db;"
@@ -402,8 +432,8 @@ void MainWindow::setupUILayout()
     buttonLayout->addWidget(ui->camStartButton);
 
     ui->snapShotButton->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
-    ui->snapShotButton->setMinimumSize(150, 45);  // 크기 증가
-    ui->snapShotButton->setMaximumSize(250, 60);
+    ui->snapShotButton->setMinimumSize(180, 50);  // 크기 더 증가
+    ui->snapShotButton->setMaximumSize(300, 70);  // 최대 크기도 증가
     ui->snapShotButton->setStyleSheet(
         "QPushButton {"
         "    background-color: #27ae60;"
@@ -432,10 +462,6 @@ void MainWindow::setupUILayout()
 
     // centralwidget에 레이아웃 설정
     ui->centralwidget->setLayout(mainLayout);
-
-    // 윈도우 크기를 동적으로 조정 가능하게 설정
-    setMinimumSize(500, 400);  // 최소 크기 설정
-    resize(800, 650);  // 기본 크기 설정
 }
 
 void MainWindow::fetchAnalysisResult()
@@ -743,33 +769,29 @@ void MainWindow::switchToCameraView()
     
     // 레이아웃 설정
     QVBoxLayout *mainLayout = new QVBoxLayout(newCentralWidget);
-    mainLayout->setContentsMargins(10, 10, 10, 10);
-    mainLayout->setSpacing(15);  // 간격을 늘려서 버튼과 카메라 분리
+    mainLayout->setContentsMargins(15, 15, 15, 15);
+    mainLayout->setSpacing(20);  // 간격을 늘려서 버튼과 카메라 분리
 
-    // 카메라 뷰어를 중앙에 정렬
-    QHBoxLayout *cameraLayout = new QHBoxLayout();
-    cameraLayout->addStretch();  // 왼쪽 여백
-    
+    // 카메라 뷰어를 동적 크기 조정 가능하게 설정
     camViewer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
-    camViewer->setMinimumSize(320, 240);  // 최소 크기 설정
-    camViewer->setMaximumSize(800, 600);  // 최대 크기 설정
+    camViewer->setMinimumSize(480, 360);  // 최소 크기를 더 크게 설정 (16:9 비율)
+    camViewer->setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);  // 최대 크기 제한 제거
     camViewer->setAlignment(Qt::AlignCenter);  // 중앙 정렬
-    cameraLayout->addWidget(camViewer);
     
-    cameraLayout->addStretch();  // 오른쪽 여백
-    mainLayout->addLayout(cameraLayout, 0);  // stretch factor를 0으로 설정하여 고정 크기
+    // 카메라 뷰어를 메인 레이아웃에 직접 추가하여 공간을 최대한 활용
+    mainLayout->addWidget(camViewer, 1);  // stretch factor를 1로 설정하여 확장 가능
 
     // 카메라와 버튼 사이에 여백 추가
-    mainLayout->addSpacing(20);
+    mainLayout->addSpacing(15);
 
     // 버튼 레이아웃 (카메라 화면 밖에 배치)
     QHBoxLayout *buttonLayout = new QHBoxLayout();
-    buttonLayout->setSpacing(20);
+    buttonLayout->setSpacing(30);  // 버튼 간격 더 증가
     buttonLayout->addStretch();
     
     camStartButton->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
-    camStartButton->setMinimumSize(150, 45);
-    camStartButton->setMaximumSize(250, 60);
+    camStartButton->setMinimumSize(180, 50);  // 크기 더 증가
+    camStartButton->setMaximumSize(300, 70);  // 최대 크기도 증가
     camStartButton->setStyleSheet(
         "QPushButton {"
         "    background-color: #3498db;"
@@ -789,8 +811,8 @@ void MainWindow::switchToCameraView()
     buttonLayout->addWidget(camStartButton);
 
     snapShotButton->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
-    snapShotButton->setMinimumSize(150, 45);
-    snapShotButton->setMaximumSize(250, 60);
+    snapShotButton->setMinimumSize(180, 50);  // 크기 더 증가
+    snapShotButton->setMaximumSize(300, 70);  // 최대 크기도 증가
     snapShotButton->setEnabled(false);
     snapShotButton->setStyleSheet(
         "QPushButton {"
@@ -833,10 +855,6 @@ void MainWindow::switchToCameraView()
     
     // 카메라 초기화
     setupCamera();
-    
-    // 윈도우 크기를 동적으로 조정 가능하게 설정
-    setMinimumSize(500, 400);  // 최소 크기 설정
-    resize(800, 650);  // 기본 크기 설정
     
     // 상태바에 현재 사용자 표시
     ui->statusbar->showMessage(QString("현재 사용자: %1").arg(currentUserName), 5000);
@@ -885,7 +903,7 @@ void MainWindow::setupCameraOverlay()
     
     // 원의 크기를 뷰 크기에 비례하여 설정
     QSize viewSize = ui->camViewer->size();
-    qreal circleSize = qMin(viewSize.width(), viewSize.height()) * 0.6;  // 뷰 크기의 60%
+    qreal circleSize = qMin(viewSize.width(), viewSize.height()) * 0.8;  // 뷰 크기의 80%로 증가
     
     QRectF sceneRect = scene->sceneRect();
     qreal centerX = sceneRect.center().x();
@@ -936,7 +954,7 @@ void MainWindow::updateOverlayPosition()
     // 현재 뷰 크기에 맞춰 오버레이 크기 및 위치 재조정
     QRectF sceneRect = scene->sceneRect();
     QSize viewSize = ui->camViewer->size();
-    qreal circleSize = qMin(viewSize.width(), viewSize.height()) * 0.6;  // 뷰 크기의 60%
+    qreal circleSize = qMin(viewSize.width(), viewSize.height()) * 0.8;  // 뷰 크기의 80%로 증가
     
     qreal centerX = sceneRect.center().x();
     qreal centerY = sceneRect.center().y()-25;

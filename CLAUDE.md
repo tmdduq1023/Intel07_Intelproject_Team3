@@ -50,6 +50,11 @@ make
 
 # Run the application
 ./camera_Qt
+
+# Clean build
+make clean
+qmake camera_Qt.pro
+make
 ```
 
 ### Docker Deployment
@@ -142,3 +147,52 @@ Qt Client → [HTTP POST /upload] → node.py → [AI Processing] → [HTTP POST
 - **GPU**: CUDA 11.8 support for AI training
 - **Serial Port**: `/dev/serial0` for UART communication (Raspberry Pi)
 - **Camera**: Compatible with Qt multimedia framework
+
+## Configuration Files
+
+### Server Configuration
+- **Qt Client Config**: `Qt/camera_Qt/config.ini` - Contains server URLs and endpoints
+- **Default URLs**: 
+  - Image processing server: `http://192.168.0.90:5000/upload`
+  - Raspberry Pi server: `http://192.168.0.90:5000/receive`
+- **UART Settings**: 9600 baud rate, `/dev/serial0` device path
+
+### Qt Project Structure
+- **Main Files**: `mainwindow.cpp`, `databasemanager.cpp`, `analysisresultdialog.cpp`, `nameinputdialog.cpp`
+- **Project Config**: `camera_Qt.pro` - Defines Qt modules, C++17 standard, source/header files
+- **Database**: SQLite integration for user profiles and analysis results
+- **Networking**: HTTP client for Flask server communication
+
+## Debugging and Development
+
+### Server Debugging
+```bash
+# Check if servers are running
+ps aux | grep python
+
+# Monitor server logs
+cd Server
+source venv/bin/activate
+python3 node.py  # Check terminal output for image processing
+python3 rasp.py  # Check terminal output for hardware communication
+
+# Test server endpoints manually
+curl -X POST http://localhost:5000/upload -F "image=@test.jpg"
+curl -X POST http://192.168.0.90:5000/receive -H "Content-Type: application/json" -d '{"test":"data"}'
+```
+
+### Qt Application Debugging
+```bash
+# Check Qt application logs
+cd Qt/camera_Qt
+./camera_Qt  # Check terminal output for debug messages
+
+# Verify camera access
+v4l2-ctl --list-devices  # Linux camera detection
+```
+
+### Network Troubleshooting
+- **Port Conflicts**: Ensure ports 5000 are available on both servers
+- **Network Connectivity**: Verify Raspberry Pi IP address (192.168.0.90) is accessible
+- **UART Permissions**: Check `/dev/serial0` permissions on Raspberry Pi
+- **Firewall**: Ensure Flask servers can accept connections
