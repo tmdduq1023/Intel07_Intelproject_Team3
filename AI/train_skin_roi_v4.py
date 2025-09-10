@@ -676,7 +676,7 @@ def main():
     scaler = GradScaler(device="cuda") if torch.cuda.is_available() else None
 
     stopper = EarlyStopping(patience=args.early_patience, min_delta=args.early_min_delta)
-    best_path  = os.path.join(args.out_dir, "best.pth")
+    best_path  = os.path.join(args.out_dir, "best_0910.pth")
     best_epoch = 0
 
     start_time = datetime.now()
@@ -696,8 +696,8 @@ def main():
         score = vl_loss
 
         print(f"[{ep:03d}/{args.epochs}] "
-              f"train{ep:03d}: loss={tr_loss:.4f} MAE={tr_mae:.4f} Acc={tr_acc:.4f} | "
-              f"valid{ep:03d}: loss={vl_loss:.4f} MAE={vl_mae:.4f} Acc={vl_acc:.4f} | "
+              f"train: loss={tr_loss:.4f} MAE={tr_mae:.4f} Acc={tr_acc:.4f} | "
+              f"valid: loss={vl_loss:.4f} MAE={vl_mae:.4f} Acc={vl_acc:.4f} | "
               f"score(vl_loss)={score:.4f}")
 
         improved = stopper.step(score)

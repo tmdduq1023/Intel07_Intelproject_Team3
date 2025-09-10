@@ -103,7 +103,7 @@ def detect_rois(detector_model, label_map, image_path):
         predictions = detector_model(image_tensor.to(DEVICE))[0]
 
     boxes, labels, scores = predictions['boxes'].cpu().numpy(), predictions['labels'].cpu().numpy(), predictions['scores'].cpu().numpy()
-    # print(f"DEBUG: Raw predicted label IDs from model: {labels}")
+    print(f"DEBUG: Raw predicted label IDs from model: {labels}")
     
     best_detections = {}
     for i in range(len(boxes)):
