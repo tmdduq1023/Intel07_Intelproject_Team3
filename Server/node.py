@@ -2,10 +2,13 @@ import requests
 from flask import Flask, request, jsonify
 import os
 from werkzeug.utils import secure_filename
+import random
 
 # 라즈베리파이의 실제 IP 주소로 변경
 DESTINATION_URL = "http://192.168.0.90:5000/receive"  # http:// 추가 및 포트 5000
 app = Flask(__name__)
+
+test = True
 
 
 def send_json(data: dict) -> None:
@@ -35,13 +38,40 @@ def recieve_image():
         return jsonify({"error": "No selected file"}), 400
 
     if file:
-        # uploads 디렉터리 생성
-        upload_dir = "uploads"
-        if not os.path.exists(upload_dir):
-            os.makedirs(upload_dir)
+        if not test:
+            # uploads 디렉터리 생성
+            upload_dir = "uploads"
+            if not os.path.exists(upload_dir):
+                os.makedirs(upload_dir)
 
-        filename = secure_filename(file.filename)
-        file.save(os.path.join(upload_dir, filename))
+            filename = secure_filename(file.filename)
+            file.save(os.path.join(upload_dir, filename))
+        elif test:
+            random_test_data: dict = {
+                "forehead": {
+                    "moisture": random.randint(0, 100),
+                    "elasticity": random.randint(0, 100),
+                    "pigmentation": random.randint(0, 100),
+                },
+                "l_check": {
+                    "moisture": random.randint(0, 100),
+                    "elasticity": random.randint(0, 100),
+                    "pigmentation": random.randint(0, 100),
+                    "pore": random.randint(0, 100),
+                },
+                "r_check": {
+                    "moisture": random.randint(0, 100),
+                    "elasticity": random.randint(0, 100),
+                    "pigmentation": random.randint(0, 100),
+                    "pore": random.randint(0, 100),
+                },
+                "chin": {
+                    "moisture": random.randint(0, 100),
+                    "elasticity": random.randint(0, 100),
+                },
+                "lib": {"elasticity": random.randint(0, 100)},
+            }
+            send_json(random_test_data)
 
         # Qt에서 기대하는 JSON 응답
         return (
@@ -49,7 +79,7 @@ def recieve_image():
                 {
                     "status": "success",
                     "message": "Image uploaded successfully!",
-                    "filename": filename,
+                    "filename": "filename",  # filename
                 }
             ),
             200,

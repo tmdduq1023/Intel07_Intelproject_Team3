@@ -2,14 +2,31 @@
 #include <QApplication>
 #include <QFont>
 #include <QFrame>
+#include <QtCharts/QChart>
+#include <QtCharts/QBarSeries>
+#include <QtCharts/QBarSet>
+#include <QtCharts/QValueAxis>
+#include <QtCharts/QBarCategoryAxis>
+#include <QtCharts/QChartView>
+
+QT_CHARTS_USE_NAMESPACE
 
 AnalysisResultDialog::AnalysisResultDialog(QJsonObject analysisData, QString userName, QWidget *parent)
     : QDialog(parent), analysisData(analysisData), userName(userName), isComparison(false)
 {
     setWindowTitle(QString("피부 분석 결과 - %1").arg(userName.isEmpty() ? "사용자" : userName));
     setModal(true);
-    setMinimumSize(480, 400);
-    resize(600, 550);
+    
+    // 전체화면으로 설정
+    QScreen *screen = QApplication::primaryScreen();
+    if (screen) {
+        QRect screenGeometry = screen->availableGeometry();
+        resize(screenGeometry.width(), screenGeometry.height());
+        move(screenGeometry.x(), screenGeometry.y());
+    } else {
+        setMinimumSize(480, 400);
+        resize(600, 550);
+    }
     
     setupUI();
     displayAnalysisData(analysisData);
@@ -20,8 +37,17 @@ AnalysisResultDialog::AnalysisResultDialog(QJsonObject currentData, QJsonObject 
 {
     setWindowTitle(QString("피부 분석 비교 - %1").arg(userName.isEmpty() ? "사용자" : userName));
     setModal(true);
-    setMinimumSize(550, 450);
-    resize(700, 600);
+    
+    // 전체화면으로 설정
+    QScreen *screen = QApplication::primaryScreen();
+    if (screen) {
+        QRect screenGeometry = screen->availableGeometry();
+        resize(screenGeometry.width(), screenGeometry.height());
+        move(screenGeometry.x(), screenGeometry.y());
+    } else {
+        setMinimumSize(550, 450);
+        resize(700, 600);
+    }
     
     setupUI();
     displayComparisonData(currentData, previousData);
@@ -107,16 +133,9 @@ void AnalysisResultDialog::displayAnalysisData(const QJsonObject &data)
     contentLayout->setSpacing(15);
     contentLayout->setContentsMargins(10, 10, 10, 10);
     
-    // 각 영역별로 위젯 생성
-    QStringList regions = {"forehead", "l_check", "r_check", "chin", "lib"};
-    QStringList regionNames = {"이마", "왼쪽 볼", "오른쪽 볼", "턱", "입술"};
-    
-    for (int i = 0; i < regions.size(); ++i) {
-        if (data.contains(regions[i]) && data[regions[i]].isObject()) {
-            QWidget *regionWidget = createRegionWidget(regionNames[i], data[regions[i]].toObject());
-            contentLayout->addWidget(regionWidget);
-        }
-    }
+    // 통합 막대그래프 생성
+    QChartView *chartView = createUnifiedBarChart(data);
+    contentLayout->addWidget(chartView);
     
     contentLayout->addStretch();
 }
@@ -170,7 +189,8 @@ QWidget* AnalysisResultDialog::createRegionWidget(const QString &regionName, con
 QWidget* AnalysisResultDialog::createMetricWidget(const QString &metricName, int value)
 {
     QWidget *widget = new QWidget();
-    widget->setMinimumHeight(65);
+    widget->setMinimumHeight(120);
+    widget->setMinimumWidth(100);
     widget->setStyleSheet("background-color: #f8f9fa; border-radius: 6px; padding: 8px;");
     
     QVBoxLayout *layout = new QVBoxLayout(widget);
@@ -184,51 +204,62 @@ QWidget* AnalysisResultDialog::createMetricWidget(const QString &metricName, int
     nameFont.setBold(true);
     nameLabel->setFont(nameFont);
     nameLabel->setStyleSheet("color: #2c3e50;");
+    nameLabel->setAlignment(Qt::AlignCenter);
     layout->addWidget(nameLabel);
     
-    // 진행률 바
+    // 수직 진행률 바 컨테이너
+    QWidget *barContainer = new QWidget();
+    barContainer->setFixedHeight(60);
+    barContainer->setMinimumWidth(40);
+    
+    QHBoxLayout *barLayout = new QHBoxLayout(barContainer);
+    barLayout->setContentsMargins(0, 0, 0, 0);
+    barLayout->addStretch();
+    
+    // 수직 진행률 바
     QProgressBar *progressBar = new QProgressBar();
+    progressBar->setOrientation(Qt::Vertical);
     progressBar->setRange(0, 100);
     progressBar->setValue(value);
     progressBar->setTextVisible(false);
-    progressBar->setFixedHeight(12);
+    progressBar->setFixedWidth(20);
+    progressBar->setFixedHeight(60);
     
     QColor barColor = getScoreColor(value);
     progressBar->setStyleSheet(QString(
         "QProgressBar {"
         "  border: 1px solid #bdc3c7;"
-        "  border-radius: 7px;"
+        "  border-radius: 3px;"
         "  background-color: #ecf0f1;"
         "}"
         "QProgressBar::chunk {"
         "  background-color: %1;"
-        "  border-radius: 6px;"
+        "  border-radius: 2px;"
         "}"
     ).arg(barColor.name()));
     
-    layout->addWidget(progressBar);
+    barLayout->addWidget(progressBar);
+    barLayout->addStretch();
+    
+    layout->addWidget(barContainer);
     
     // 점수와 설명
-    QHBoxLayout *scoreLayout = new QHBoxLayout();
-    
     QLabel *scoreLabel = new QLabel(QString("%1").arg(value));
     QFont scoreFont = scoreLabel->font();
     scoreFont.setPointSize(12);
     scoreFont.setBold(true);
     scoreLabel->setFont(scoreFont);
     scoreLabel->setStyleSheet(QString("color: %1;").arg(barColor.name()));
+    scoreLabel->setAlignment(Qt::AlignCenter);
+    layout->addWidget(scoreLabel);
     
     QLabel *descLabel = new QLabel(getScoreDescription(value));
     QFont descFont = descLabel->font();
     descFont.setPointSize(9);
     descLabel->setFont(descFont);
     descLabel->setStyleSheet("color: #7f8c8d;");
-    
-    scoreLayout->addWidget(scoreLabel);
-    scoreLayout->addStretch();
-    scoreLayout->addWidget(descLabel);
-    
-    layout->addLayout(scoreLayout);
+    descLabel->setAlignment(Qt::AlignCenter);
+    layout->addWidget(descLabel);
     
     return widget;
 }
@@ -266,20 +297,9 @@ void AnalysisResultDialog::displayComparisonData(const QJsonObject &currentData,
     contentLayout->setSpacing(12);
     contentLayout->setContentsMargins(8, 8, 8, 8);
     
-    // 각 영역별로 비교 위젯 생성
-    QStringList regions = {"forehead", "l_check", "r_check", "chin", "lib"};
-    QStringList regionNames = {"이마", "왼쪽 볼", "오른쪽 볼", "턱", "입술"};
-    
-    for (int i = 0; i < regions.size(); ++i) {
-        if (currentData.contains(regions[i]) && currentData[regions[i]].isObject()) {
-            QJsonObject currentRegion = currentData[regions[i]].toObject();
-            QJsonObject previousRegion = previousData.contains(regions[i]) ? 
-                previousData[regions[i]].toObject() : QJsonObject();
-                
-            QWidget *regionWidget = createComparisonRegionWidget(regionNames[i], currentRegion, previousRegion);
-            contentLayout->addWidget(regionWidget);
-        }
-    }
+    // 통합 비교 막대그래프 생성
+    QChartView *chartView = createUnifiedComparisonChart(currentData, previousData);
+    contentLayout->addWidget(chartView);
     
     contentLayout->addStretch();
 }
@@ -336,7 +356,8 @@ QWidget* AnalysisResultDialog::createComparisonRegionWidget(const QString &regio
 QWidget* AnalysisResultDialog::createComparisonMetricWidget(const QString &metricName, int currentValue, int previousValue)
 {
     QWidget *widget = new QWidget();
-    widget->setMinimumHeight(65);
+    widget->setMinimumHeight(140);
+    widget->setMinimumWidth(120);
     widget->setStyleSheet("background-color: #f8f9fa; border-radius: 6px; padding: 8px;");
     
     QVBoxLayout *layout = new QVBoxLayout(widget);
@@ -350,29 +371,72 @@ QWidget* AnalysisResultDialog::createComparisonMetricWidget(const QString &metri
     nameFont.setBold(true);
     nameLabel->setFont(nameFont);
     nameLabel->setStyleSheet("color: #2c3e50;");
+    nameLabel->setAlignment(Qt::AlignCenter);
     layout->addWidget(nameLabel);
     
-    // 현재 값 진행률 바
+    // 수직 진행률 바들 컨테이너
+    QWidget *barsContainer = new QWidget();
+    barsContainer->setFixedHeight(60);
+    barsContainer->setMinimumWidth(60);
+    
+    QHBoxLayout *barsLayout = new QHBoxLayout(barsContainer);
+    barsLayout->setContentsMargins(0, 0, 0, 0);
+    barsLayout->setSpacing(8);
+    barsLayout->addStretch();
+    
+    // 현재 값 수직 진행률 바
     QProgressBar *currentBar = new QProgressBar();
+    currentBar->setOrientation(Qt::Vertical);
     currentBar->setRange(0, 100);
     currentBar->setValue(currentValue);
     currentBar->setTextVisible(false);
-    currentBar->setFixedHeight(12);
+    currentBar->setFixedWidth(18);
+    currentBar->setFixedHeight(60);
     
     QColor currentColor = getScoreColor(currentValue);
     currentBar->setStyleSheet(QString(
         "QProgressBar {"
         "  border: 1px solid #bdc3c7;"
-        "  border-radius: 6px;"
+        "  border-radius: 3px;"
         "  background-color: #ecf0f1;"
         "}"
         "QProgressBar::chunk {"
         "  background-color: %1;"
-        "  border-radius: 5px;"
+        "  border-radius: 2px;"
         "}"
     ).arg(currentColor.name()));
     
-    layout->addWidget(currentBar);
+    barsLayout->addWidget(currentBar);
+    
+    // 이전 값 수직 진행률 바 (있는 경우)
+    if (previousValue >= 0) {
+        QProgressBar *previousBar = new QProgressBar();
+        previousBar->setOrientation(Qt::Vertical);
+        previousBar->setRange(0, 100);
+        previousBar->setValue(previousValue);
+        previousBar->setTextVisible(false);
+        previousBar->setFixedWidth(18);
+        previousBar->setFixedHeight(60);
+        
+        QColor previousColor = getScoreColor(previousValue);
+        previousColor.setAlpha(120); // 반투명 효과
+        previousBar->setStyleSheet(QString(
+            "QProgressBar {"
+            "  border: 1px solid #bdc3c7;"
+            "  border-radius: 3px;"
+            "  background-color: #ecf0f1;"
+            "}"
+            "QProgressBar::chunk {"
+            "  background-color: %1;"
+            "  border-radius: 2px;"
+            "}"
+        ).arg(previousColor.name()));
+        
+        barsLayout->addWidget(previousBar);
+    }
+    
+    barsLayout->addStretch();
+    layout->addWidget(barsContainer);
     
     // 값과 비교 정보
     QHBoxLayout *infoLayout = new QHBoxLayout();
@@ -416,6 +480,7 @@ QWidget* AnalysisResultDialog::createComparisonMetricWidget(const QString &metri
     }
     
     infoLayout->addStretch();
+    layout->addLayout(infoLayout);
     
     // 설명
     QLabel *descLabel = new QLabel(getScoreDescription(currentValue));
@@ -423,10 +488,8 @@ QWidget* AnalysisResultDialog::createComparisonMetricWidget(const QString &metri
     descFont.setPointSize(9);
     descLabel->setFont(descFont);
     descLabel->setStyleSheet("color: #7f8c8d;");
-    
-    infoLayout->addWidget(descLabel);
-    
-    layout->addLayout(infoLayout);
+    descLabel->setAlignment(Qt::AlignCenter);
+    layout->addWidget(descLabel);
     
     return widget;
 }
@@ -449,4 +512,177 @@ QColor AnalysisResultDialog::getChangeColor(int change)
     if (change == 0) return QColor("#95a5a6");     // 회색 (변화없음)
     if (change > -5) return QColor("#f39c12");     // 주황 (약간 악화)
     return QColor("#e74c3c");                      // 빨강 (악화)
+}
+
+QChartView* AnalysisResultDialog::createUnifiedBarChart(const QJsonObject &data)
+{
+    QChart *chart = new QChart();
+    chart->setTitle("피부 분석 결과");
+    chart->setAnimationOptions(QChart::SeriesAnimations);
+    
+    QBarSeries *series = new QBarSeries();
+    QBarSet *barSet = new QBarSet("점수");
+    
+    QStringList categories;
+    QList<QColor> barColors;
+    
+    // 각 영역별 데이터 수집
+    QStringList regions = {"forehead", "l_check", "r_check", "chin", "lib"};
+    QStringList regionNames = {"이마", "왼쪽 볼", "오른쪽 볼", "턱", "입술"};
+    QStringList metrics = {"moisture", "elasticity", "pigmentation", "pore"};
+    QStringList metricNames = {"수분", "탄력", "색소침착", "모공"};
+    
+    for (int i = 0; i < regions.size(); ++i) {
+        if (data.contains(regions[i]) && data[regions[i]].isObject()) {
+            QJsonObject regionData = data[regions[i]].toObject();
+            
+            for (int j = 0; j < metrics.size(); ++j) {
+                if (regionData.contains(metrics[j])) {
+                    int value = static_cast<int>(regionData[metrics[j]].toDouble());
+                    QString label = regionNames[i] + " " + metricNames[j];
+                    
+                    categories.append(label);
+                    barSet->append(value);
+                    barColors.append(getScoreColor(value));
+                }
+            }
+        }
+    }
+    
+    series->append(barSet);
+    chart->addSeries(series);
+    
+    // X축 설정
+    QBarCategoryAxis *axisX = new QBarCategoryAxis();
+    axisX->append(categories);
+    
+    // X축 라벨 폰트 크기 설정
+    QFont axisFont = axisX->labelsFont();
+    axisFont.setPointSize(8);
+    axisX->setLabelsFont(axisFont);
+    axisX->setLabelsAngle(-45); // 라벨을 45도 기울여서 겹치지 않게
+    
+    chart->addAxis(axisX, Qt::AlignBottom);
+    series->attachAxis(axisX);
+    
+    // Y축 설정
+    QValueAxis *axisY = new QValueAxis();
+    axisY->setRange(0, 100);
+    axisY->setTickCount(6);
+    axisY->setLabelFormat("%d");
+    chart->addAxis(axisY, Qt::AlignLeft);
+    series->attachAxis(axisY);
+    
+    // 차트 스타일 설정
+    chart->legend()->setVisible(false);
+    chart->setBackgroundBrush(QBrush(QColor(248, 249, 250)));
+    
+    // ChartView 생성
+    QChartView *chartView = new QChartView(chart);
+    chartView->setRenderHint(QPainter::Antialiasing);
+    
+    // 화면 크기에 맞게 차트 크기 설정
+    QScreen *screen = QApplication::primaryScreen();
+    if (screen) {
+        QRect screenGeometry = screen->availableGeometry();
+        chartView->setMinimumHeight(screenGeometry.height() * 0.7);
+        chartView->setMinimumWidth(screenGeometry.width() * 0.9);
+    } else {
+        chartView->setMinimumHeight(400);
+        chartView->setMinimumWidth(600);
+    }
+    
+    return chartView;
+}
+
+QChartView* AnalysisResultDialog::createUnifiedComparisonChart(const QJsonObject &currentData, const QJsonObject &previousData)
+{
+    QChart *chart = new QChart();
+    chart->setTitle("피부 분석 비교 결과");
+    chart->setAnimationOptions(QChart::SeriesAnimations);
+    
+    QBarSeries *series = new QBarSeries();
+    QBarSet *currentBarSet = new QBarSet("현재");
+    QBarSet *previousBarSet = new QBarSet("이전");
+    
+    QStringList categories;
+    
+    // 각 영역별 데이터 수집
+    QStringList regions = {"forehead", "l_check", "r_check", "chin", "lib"};
+    QStringList regionNames = {"이마", "왼쪽 볼", "오른쪽 볼", "턱", "입술"};
+    QStringList metrics = {"moisture", "elasticity", "pigmentation", "pore"};
+    QStringList metricNames = {"수분", "탄력", "색소침착", "모공"};
+    
+    for (int i = 0; i < regions.size(); ++i) {
+        if (currentData.contains(regions[i]) && currentData[regions[i]].isObject()) {
+            QJsonObject currentRegionData = currentData[regions[i]].toObject();
+            QJsonObject previousRegionData = previousData.contains(regions[i]) ? 
+                previousData[regions[i]].toObject() : QJsonObject();
+            
+            for (int j = 0; j < metrics.size(); ++j) {
+                if (currentRegionData.contains(metrics[j])) {
+                    int currentValue = static_cast<int>(currentRegionData[metrics[j]].toDouble());
+                    int previousValue = previousRegionData.contains(metrics[j]) ? 
+                        static_cast<int>(previousRegionData[metrics[j]].toDouble()) : 0;
+                    
+                    QString label = regionNames[i] + "\n" + metricNames[j];
+                    
+                    categories.append(label);
+                    currentBarSet->append(currentValue);
+                    previousBarSet->append(previousValue);
+                }
+            }
+        }
+    }
+    
+    // 막대 색상 설정
+    currentBarSet->setColor(QColor("#3498db"));
+    previousBarSet->setColor(QColor("#95a5a6"));
+    
+    series->append(currentBarSet);
+    series->append(previousBarSet);
+    chart->addSeries(series);
+    
+    // X축 설정
+    QBarCategoryAxis *axisX = new QBarCategoryAxis();
+    axisX->append(categories);
+    
+    // X축 라벨 폰트 크기 설정
+    QFont axisFont = axisX->labelsFont();
+    axisFont.setPointSize(8);
+    axisX->setLabelsFont(axisFont);
+    axisX->setLabelsAngle(-45); // 라벨을 45도 기울여서 겹치지 않게
+    
+    chart->addAxis(axisX, Qt::AlignBottom);
+    series->attachAxis(axisX);
+    
+    // Y축 설정
+    QValueAxis *axisY = new QValueAxis();
+    axisY->setRange(0, 100);
+    axisY->setTickCount(6);
+    axisY->setLabelFormat("%d");
+    chart->addAxis(axisY, Qt::AlignLeft);
+    series->attachAxis(axisY);
+    
+    // 차트 스타일 설정
+    chart->legend()->setVisible(true);
+    chart->legend()->setAlignment(Qt::AlignBottom);
+    chart->setBackgroundBrush(QBrush(QColor(248, 249, 250)));
+    
+    // ChartView 생성
+    QChartView *chartView = new QChartView(chart);
+    chartView->setRenderHint(QPainter::Antialiasing);
+    
+    // 화면 크기에 맞게 차트 크기 설정
+    QScreen *screen = QApplication::primaryScreen();
+    if (screen) {
+        QRect screenGeometry = screen->availableGeometry();
+        chartView->setMinimumHeight(screenGeometry.height() * 0.7);
+        chartView->setMinimumWidth(screenGeometry.width() * 0.9);
+    } else {
+        chartView->setMinimumHeight(450);
+        chartView->setMinimumWidth(700);
+    }
+    
+    return chartView;
 }

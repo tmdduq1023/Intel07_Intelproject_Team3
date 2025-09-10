@@ -11,6 +11,13 @@
 #include <QPushButton>
 #include <QJsonObject>
 #include <QScrollArea>
+#include <QScreen>
+#include <QApplication>
+#include <QtCharts/QChartView>
+#include <QtCharts/QBarSeries>
+#include <QtCharts/QBarSet>
+#include <QtCharts/QValueAxis>
+#include <QtCharts/QBarCategoryAxis>
 
 class AnalysisResultDialog : public QDialog
 {
@@ -28,6 +35,8 @@ private:
     QWidget* createComparisonRegionWidget(const QString &regionName, const QJsonObject &currentData, const QJsonObject &previousData);
     QWidget* createMetricWidget(const QString &metricName, int value);
     QWidget* createComparisonMetricWidget(const QString &metricName, int currentValue, int previousValue);
+    QtCharts::QChartView* createUnifiedBarChart(const QJsonObject &data);
+    QtCharts::QChartView* createUnifiedComparisonChart(const QJsonObject &currentData, const QJsonObject &previousData);
     QString getMetricDescription(const QString &metricName);
     QString getScoreDescription(int score);
     QColor getScoreColor(int score);

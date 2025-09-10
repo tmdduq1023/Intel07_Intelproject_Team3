@@ -104,24 +104,22 @@ void MainWindow::setupWindowSizing()
     
     QRect screenGeometry = screen->availableGeometry();
     
-    // 화면 크기의 90%로 창 크기 설정 (작업표시줄과 기타 UI 요소를 위한 여백)
-    int windowWidth = static_cast<int>(screenGeometry.width() * 0.9);
-    int windowHeight = static_cast<int>(screenGeometry.height() * 0.9);
+    // 전체화면으로 창 크기 설정
+    int windowWidth = screenGeometry.width();
+    int windowHeight = screenGeometry.height();
     
     // 최소 크기 설정
     setMinimumSize(600, 500);
     
-    // 창 크기 설정
+    // 창 크기 설정 (전체화면)
     resize(windowWidth, windowHeight);
     
-    // 창을 화면 중앙에 위치
-    int x = screenGeometry.x() + (screenGeometry.width() - windowWidth) / 2;
-    int y = screenGeometry.y() + (screenGeometry.height() - windowHeight) / 2;
-    move(x, y);
+    // 창을 화면 왼쪽 상단에 위치
+    move(screenGeometry.x(), screenGeometry.y());
     
     qDebug() << "Screen geometry:" << screenGeometry;
     qDebug() << "Window size set to:" << windowWidth << "x" << windowHeight;
-    qDebug() << "Window positioned at:" << x << "," << y;
+    qDebug() << "Window positioned at:" << screenGeometry.x() << "," << screenGeometry.y();
 }
 
 void MainWindow::setupCamera()

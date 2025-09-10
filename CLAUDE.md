@@ -196,3 +196,29 @@ v4l2-ctl --list-devices  # Linux camera detection
 - **Network Connectivity**: Verify Raspberry Pi IP address (192.168.0.90) is accessible
 - **UART Permissions**: Check `/dev/serial0` permissions on Raspberry Pi
 - **Firewall**: Ensure Flask servers can accept connections
+
+## Important Implementation Details
+
+### Server Protocol Specifications
+- **Image Processing**: `node.py` receives multipart/form-data with "image" field
+- **Test Mode**: Server includes test mode (`test = True`) for development without actual AI processing
+- **Error Handling**: All Flask endpoints return proper JSON error responses with HTTP status codes
+- **Timeout Configuration**: HTTP requests use 30-second timeout for robustness
+
+### UART Communication Protocol
+- **Data Format**: 14 numerical values joined by "@" delimiter in specific order:
+  ```
+  forehead: moisture, elasticity, pigmentation
+  l_check: moisture, elasticity, pigmentation, pore
+  r_check: moisture, elasticity, pigmentation, pore  
+  chin: moisture, elasticity
+  lib: elasticity
+  ```
+- **Hardware Interface**: Uses Python `serial` library with thread-safe operations via `ser_lock`
+- **Error Recovery**: UART operations include proper exception handling and reconnection logic
+
+### Development Workflow
+- **Branch Strategy**: Current branch is `image_receive`, main branch is `main`
+- **Modified Files**: `Server/node.py` and `Server/rasp.py` have uncommitted changes
+- **Qt Build Process**: Always run `make clean` before rebuilding to avoid stale object files
+- **Virtual Environment**: Server dependencies are pre-installed in `Server/venv/`
