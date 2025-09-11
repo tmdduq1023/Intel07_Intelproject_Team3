@@ -88,7 +88,7 @@ def recieve_image():
                     "status": "success",
                     "message": "Image uploaded successfully!",
                     # "filename": filename,
-                    "filename": "filename",
+                    "filename": "filename",  # 테스트용 실제 활용에서는 이 줄 지우고 윗줄 활성화.
                 }
             ),
             200,

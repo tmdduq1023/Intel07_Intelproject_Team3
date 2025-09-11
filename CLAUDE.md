@@ -31,7 +31,8 @@ python3 train_skin_roi_v4.py
 
 # Run inference on skin features
 python3 predict_all_features.py
-python3 infer_roi.py
+python3 infer_skin_server.py  # Main inference script for server integration
+python3 infer_roi_v2.py
 
 # Evaluate models
 python3 evaluate_skin_roi.py
@@ -51,9 +52,13 @@ make
 # Run the application
 ./camera_Qt
 
-# Clean build
+# Clean build (recommended before rebuilding)
 make clean
 qmake camera_Qt.pro
+make
+
+# Debug build
+qmake CONFIG+=debug camera_Qt.pro
 make
 ```
 
@@ -85,7 +90,11 @@ The system implements a multi-tier distributed architecture with four main compo
 ### 3. Hardware Communication Server (`Server/rasp.py`)
 - **Framework**: Flask web server with UART serial communication
 - **Purpose**: Receives analysis results and controls dispensing hardware
-- **Endpoints**: `/receive` (receives JSON analysis data)
+- **Endpoints**: 
+  - `/receive` (receives JSON analysis data from node.py)
+  - `/get_analysis` (Qt client requests latest analysis results)
+  - `/test_data` (generates sample test data)
+  - `/clear_data` (clears stored analysis data)
 - **Hardware**: UART communication via `/dev/serial0` at 9600 baud
 - **Protocol**: Sends 14 metrics as "@"-delimited string to hardware
 
@@ -159,9 +168,10 @@ Qt Client → [HTTP POST /upload] → node.py → [AI Processing] → [HTTP POST
 
 ### Qt Project Structure
 - **Main Files**: `mainwindow.cpp`, `databasemanager.cpp`, `analysisresultdialog.cpp`, `nameinputdialog.cpp`
-- **Project Config**: `camera_Qt.pro` - Defines Qt modules, C++17 standard, source/header files
-- **Database**: SQLite integration for user profiles and analysis results
-- **Networking**: HTTP client for Flask server communication
+- **Project Config**: `camera_Qt.pro` - Defines Qt modules (core, gui, widgets, multimedia, network, sql, charts), C++17 standard
+- **UI Components**: Camera preview, face guide circle, analysis result dialogs, name input forms
+- **Database**: SQLite integration for user profiles and analysis results storage
+- **Networking**: HTTP client for Flask server communication with multipart file upload
 
 ## Debugging and Development
 
@@ -179,6 +189,11 @@ python3 rasp.py  # Check terminal output for hardware communication
 # Test server endpoints manually
 curl -X POST http://localhost:5000/upload -F "image=@test.jpg"
 curl -X POST http://192.168.0.90:5000/receive -H "Content-Type: application/json" -d '{"test":"data"}'
+
+# Test additional rasp.py endpoints for development
+curl -X GET http://192.168.0.90:5000/get_analysis  # Get latest analysis data
+curl -X GET http://192.168.0.90:5000/test_data     # Generate test data
+curl -X GET http://192.168.0.90:5000/clear_data    # Clear stored data
 ```
 
 ### Qt Application Debugging
@@ -201,9 +216,11 @@ v4l2-ctl --list-devices  # Linux camera detection
 
 ### Server Protocol Specifications
 - **Image Processing**: `node.py` receives multipart/form-data with "image" field
-- **Test Mode**: Server includes test mode (`test = True`) for development without actual AI processing
+- **Test Mode**: Server includes test mode (`TEST = True`) for development without actual AI processing
+- **AI Inference**: Real inference uses `infer_skin_server.py` with subprocess.Popen for parallel processing
 - **Error Handling**: All Flask endpoints return proper JSON error responses with HTTP status codes
 - **Timeout Configuration**: HTTP requests use 30-second timeout for robustness
+- **Critical Fix**: In `node.py:line 50-56`, the subprocess call has a bug - `{filename}` should be `filename` (without quotes)
 
 ### UART Communication Protocol
 - **Data Format**: 14 numerical values joined by "@" delimiter in specific order:

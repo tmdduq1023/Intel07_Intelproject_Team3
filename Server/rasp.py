@@ -34,15 +34,79 @@ def receive_json():
             payload["r_check"]["pore"],
             payload["chin"]["moisture"],
             payload["chin"]["elasticity"],
-            payload["lib"]["elasticity"],
+            payload["lib"]["dryness"],
         ]
         print(f"분석 결과 수신: {parts}")
 
         # 최신 분석 데이터 저장
         latest_analysis_data = payload
 
+        # uart 데이터 가공
+        moisture_average = (
+            sum(
+                payload["forehead"]["moisture"],
+                payload["r_check"]["moisture"],
+                payload["r_check"]["moisture"],
+                payload["chin"]["moisture"],
+            )
+            / 4
+        )
+        elasticity_average = (
+            sum(
+                payload["forehead"]["elasticity"],
+                payload["l_check"]["elasticity"],
+                payload["r_check"]["elasticity"],
+                payload["chin"]["elasticity"],
+            )
+            / 4
+        )
+        pigmentation_average = (
+            sum(
+                payload["forehead"]["pigmentation"],
+                payload["l_check"]["pigmentation"],
+                payload["r_check"]["pigmentation"],
+            )
+            / 3
+        )
+        pore_average = sum(payload["l_check"]["pore"], payload["r_check"]["pore"]) / 2
+        lib_dryness = payload["lib"]["dryness"]
+
+        if moisture_average <= 60:
+            mositure_flag = 1
+        else:
+            mositure_flag = 0
+
+        if elasticity_average <= 60:
+            elasticity_flag = 1
+        else:
+            elasticity_flag = 0
+
+        if pigmentation_average >= 3:
+            pigmentation_flag = 1
+        else:
+            pigmentation_flag = 0
+
+        if pore_average >= 3:
+            pore_flag = 1
+        else:
+            pore_flag = 0
+
+        if lib_dryness >= 3:
+            lib_dryness_flag = 1
+        else:
+            lib_dryness_flag = 0
+
         # UART로 하드웨어에 전송
-        data = "@".join(str(p) for p in parts)
+        data = "@".join(
+            str(p)
+            for p in [
+                mositure_flag,
+                elasticity_flag,
+                pigmentation_flag,
+                pore_flag,
+                lib_dryness_flag,
+            ]
+        )
         uart_write(data)
 
         print(f"하드웨어로 전송 완료: {data}")
@@ -64,7 +128,6 @@ def receive_json():
         return jsonify({"error": str(e)}), 500
 
 
-# --------------- 테스트용 코드---------------
 @app.route("/get_analysis", methods=["GET"])
 def get_analysis_data():
     """Qt 클라이언트가 최신 분석 결과를 요청하는 엔드포인트"""
@@ -82,6 +145,7 @@ def get_analysis_data():
         return jsonify(response_data), 200
 
 
+# --------------- 테스트용 코드---------------
 @app.route("/test_data", methods=["GET"])
 def send_test_data():
     """테스트용: 샘플 분석 데이터를 생성하고 저장"""
@@ -127,6 +191,7 @@ def clear_analysis_data():
 # -------------------
 
 
+# urat 쓰기, 알고리즘 쓰기
 def uart_write(data: str):
     if not isinstance(data, str):
         data = str(data)
