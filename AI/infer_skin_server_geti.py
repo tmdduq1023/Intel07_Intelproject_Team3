@@ -1,4 +1,3 @@
-
 import torch
 from PIL import Image
 import numpy as np
@@ -12,15 +11,17 @@ import torchvision
 from collections import defaultdict
 import requests
 import cv2
+from flask import Flask, request, jsonify
+from werkzeug.utils import secure_filename
 
-# --- SDK Imports ---
+# SDK 임포트
 try:
     from geti_sdk.deployment import Deployment
 except ImportError:
     print("Error: geti-sdk is not installed. Please run: pip install geti-sdk==2.6.*")
     sys.exit(1)
 
-# --- STAGE 2: Skin Feature Analysis Model Definition ---
+# 피부 분석 모델 정의
 class RoiMultiHead(nn.Module):
     def __init__(self, backbone="resnet50", roi_label_space=None, pretrained=True):
         super().__init__()
@@ -59,30 +60,35 @@ class RoiMultiHead(nn.Module):
             out_reg[i], out_cls[i] = reg_pred, cls_preds
         return out_reg, out_cls
 
-# --- Configurations ---
+# 설정
 DEVICE = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
-SERVER_URL = "http://127.0.0.1:5000/receive"
-
-# --- STAGE 1 Config (Geti) ---
+SERVER_URL = "http://192.168.0.90:5000/receive" # 라즈베리파이 서버 주소
 GETI_DEPLOYMENT_PATH = 'geti_face_v2/deployment'
-
-# --- STAGE 2 Config (Skin Analysis) ---
 SKIN_MODEL_PATH = 'runs/skin_roi_v4/best.pth'
+UPLOAD_FOLDER = 'uploads'
+if not os.path.exists(UPLOAD_FOLDER):
+    os.makedirs(UPLOAD_FOLDER)
 
-# --- STAGE 1: GETI ROI DETECTION ---
+# Flask 앱 초기화
+app = Flask(__name__)
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+
+# 보조 함수 (모델 로딩, 분석 등)
 def load_geti_deployment(deployment_path):
-    print("Loading Intel Geti deployment...")
+    print("Geti 배포 로딩 중...")
     deployment = Deployment.from_folder(deployment_path)
-    print("Loading inference models to device...")
+    print("추론 모델 로딩 중...")
     deployment.load_inference_models(device="CPU")
     return deployment
 
 def detect_rois_with_geti(deployment, image_path):
-    print(f"Reading image: {image_path}")
+    print(f"이미지 읽는 중: {image_path}")
     image = cv2.imread(image_path)
+    if image is None:
+        raise FileNotFoundError(f"이미지를 찾을 수 없거나 읽을 수 없음: {image_path}")
     image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
-    print("Inferring with Geti model...")
+    print("Geti 모델로 추론 중...")
     prediction = deployment.infer(image_rgb)
 
     detected_rois = []
@@ -108,7 +114,6 @@ def detect_rois_with_geti(deployment, image_path):
         })
     return Image.fromarray(image_rgb), detected_rois
 
-# --- STAGE 2: SKIN ANALYSIS ---
 def load_skin_model(model_path):
     ckpt = torch.load(model_path, map_location=DEVICE)
     model = RoiMultiHead(backbone='convnext_tiny', roi_label_space=ckpt['roi_label_space'])
@@ -147,7 +152,6 @@ def analyze_skin(skin_model, roi_label_space, reg_std, cropped_image, roi_name):
             results[key] = predicted_value
     return results
 
-# --- STAGE 3: SERVER SEND ---
 def send_results_to_server(results, server_url):
     try:
         payload = {
@@ -157,67 +161,53 @@ def send_results_to_server(results, server_url):
             "chin": results.get("chin", {}),
             "lib": results.get("lips", {})
         }
-        print("\n--- Sending to Server ---")
+        print("\n--- 서버로 전송 ---")
         print("Payload:", json.dumps(payload, indent=2))
-        response = requests.post(server_url, json=payload, timeout=5)
+        response = requests.post(server_url, json=payload, timeout=10)
         response.raise_for_status()
-        print(f"Server Response ({response.status_code}): {response.json()}")
+        print(f"서버 응답 ({response.status_code}): {response.json()}")
     except requests.exceptions.RequestException as e:
-        print(f"\nError: Could not connect to the server at {server_url}. Details: {e}")
+        print(f"\n에러: 서버 연결 실패 {server_url}. 상세: {e}")
     except Exception as e:
-        print(f"\nAn unexpected error occurred during data transformation or sending: {e}")
+        print(f"\n데이터 전송 중 예외 발생: {e}")
 
 def send_detection_failure_to_server(missing_parts, server_url):
-    """Sends a detection failure message to the server."""
     try:
-        error_message = f"ROI detection failed: {', '.join(missing_parts)}"
+        error_message = f"ROI 탐지 실패: {', '.join(missing_parts)}"
         payload = {"error": error_message}
-        
-        print("\n--- Sending Detection Failure to Server ---")
+        print("\n--- 탐지 실패 전송 ---")
         print("Payload:", json.dumps(payload, indent=2))
-        
-        response = requests.post(server_url, json=payload, timeout=5)
+        response = requests.post(server_url, json=payload, timeout=10)
         response.raise_for_status()
-        
-        print(f"Server Response ({response.status_code}): {response.json()}")
-
+        print(f"서버 응답 ({response.status_code}): {response.json()}")
     except requests.exceptions.RequestException as e:
-        print(f"\nError: Could not connect to the server at {server_url}. Details: {e}")
+        print(f"\n에러: 서버 연결 실패 {server_url}. 상세: {e}")
     except Exception as e:
-        print(f"\nAn unexpected error occurred while sending failure report: {e}")
+        print(f"\n실패 보고 중 예외 발생: {e}")
 
+# 모델 로딩 (전역)
+print("--- 모델 로딩 중 ---")
+GETI_DEPLOYMENT = load_geti_deployment(GETI_DEPLOYMENT_PATH)
+SKIN_MODEL, SKIN_LABEL_SPACE, SKIN_REG_STD = load_skin_model(SKIN_MODEL_PATH)
+print("--- 모델 로딩 완료. 서버 요청 대기 중. ---")
 
-# --- MAIN ---
-if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print(f"Usage: python {sys.argv[0]} <path_to_image>")
-        sys.exit(1)
-
-    input_image_path = sys.argv[1]
-    if not os.path.exists(input_image_path):
-        print(f"Error: Input image not found at {input_image_path}")
-        sys.exit(1)
-
-    print("--- Loading Models ---")
-    geti_deployment = load_geti_deployment(GETI_DEPLOYMENT_PATH)
-    skin_model, skin_label_space, skin_reg_std = load_skin_model(SKIN_MODEL_PATH)
+# 메인 이미지 처리 로직
+def process_image_and_get_results(image_path):
+    """이미지 경로를 받아 분석 후 결과를 반환"""
+    print("--- 1단계: Geti로 얼굴 ROI 탐지 ---")
+    original_image, detected_rois = detect_rois_with_geti(GETI_DEPLOYMENT, image_path)
     
-    print("--- Stage 1: Detecting Face ROIs with Intel Geti ---")
-    original_image, detected_rois = detect_rois_with_geti(geti_deployment, input_image_path)
-    
-    # --- Check for missing ROIs ---
     expected_rois = {'facepart::forehead', 'facepart::lips', 'facepart::left_cheek', 'facepart::right_cheek', 'facepart::chin'}
     detected_labels = {r['label_name'] for r in detected_rois}
     missing_rois = expected_rois - detected_labels
 
     if missing_rois:
-        print(f"\nWarning: The following ROIs were not detected: {', '.join(missing_rois)}")
-        send_detection_failure_to_server(list(missing_rois), SERVER_URL)
-        sys.exit(0)
+        print(f"\n경고: 다음 ROI를 탐지하지 못했습니다: {', '.join(missing_rois)}")
+        return None, list(missing_rois)
 
-    print(f"\nDetected {len(detected_rois)} ROIs: {[r['label_name'] for r in detected_rois]}")
+    print(f"\n{len(detected_rois)}개 ROI 탐지: {[r['label_name'] for r in detected_rois]}")
 
-    print("--- Stage 2: Analyzing Skin Features per ROI ---")
+    print("--- 2단계: ROI별 피부 특징 분석 ---")
     final_results = defaultdict(dict)
     for roi_info in detected_rois:
         if '::' not in roi_info['label_name']:
@@ -226,13 +216,68 @@ if __name__ == "__main__":
         x1, y1, x2, y2 = roi_info['box']
         cropped_roi = original_image.crop((x1, y1, x2, y2))
         
-        analysis_results = analyze_skin(skin_model, skin_label_space, skin_reg_std, cropped_roi, roi_name)
+        analysis_results = analyze_skin(SKIN_MODEL, SKIN_LABEL_SPACE, SKIN_REG_STD, cropped_roi, roi_name)
         final_results[roi_name] = analysis_results
         
-    print("--- FINAL RESULTS ---")
+    print("--- 최종 결과 ---")
     print(json.dumps(final_results, indent=2, ensure_ascii=False))
+    return final_results, None
 
-    # --- STAGE 3: 서버로 결과 전송 ---
-    send_results_to_server(final_results, SERVER_URL)
+# Flask API 엔드포인트
+@app.route("/analyze", methods=["POST"])
+def analyze_image_endpoint():
+    """이미지를 받아 처리하고, 결과를 파이로 전송하는 API"""
+    if 'image' not in request.files:
+        return jsonify({"error": "요청에 'image' 파일이 없습니다"}), 400
+    
+    file = request.files['image']
+    if file.filename == '':
+        return jsonify({"error": "파일이 선택되지 않았습니다"}), 400
+
+    if file:
+        filename = secure_filename(file.filename)
+        temp_image_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        file.save(temp_image_path)
+        print(f"이미지 임시 저장: {temp_image_path}")
+
+        try:
+            # 저장된 이미지 처리
+            results, error_parts = process_image_and_get_results(temp_image_path)
+
+            if error_parts:
+                # 실패 메시지를 rasp.py로 전송
+                send_detection_failure_to_server(error_parts, SERVER_URL)
+                # 이미지 전송 클라이언트에 에러 반환
+                return jsonify({
+                    "status": "error",
+                    "message": f"ROI 탐지 실패: {', '.join(error_parts)}"
+                }), 400
+
+            # 분석 결과를 rasp.py 서버로 전송
+            send_results_to_server(results, SERVER_URL)
+
+            # 원본 클라이언트(라즈베리파이)에 성공 응답 반환
+            return jsonify({
+                "status": "success",
+                "message": "분석 완료 후 하드웨어 컨트롤러로 결과 전송됨.",
+                "analysis": dict(results)
+            }), 200
+
+        except Exception as e:
+            print(f"[에러] 예외 발생: {e}")
+            return jsonify({"error": "분석 중 서버 내부 오류 발생"}), 500
+        finally:
+            # 임시 이미지 파일 삭제
+            if os.path.exists(temp_image_path):
+                os.remove(temp_image_path)
+    
+    return jsonify({"error": "파일 업로드 실패"}), 500
 
 
+# 메인 실행 블록
+if __name__ == "__main__":
+    # 스크립트를 커맨드라인이 아닌 웹서버로 실행
+    # 모든 네트워크 인터페이스에서 요청 수신
+    # 포트 5001 사용 (rasp.py의 5000번 포트와 충돌 방지)
+    print("Flask 서버 시작 중...")
+    app.run(host="0.0.0.0", port=5001, debug=False)
