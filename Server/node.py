@@ -3,6 +3,7 @@ from flask import Flask, request, jsonify
 import os
 from werkzeug.utils import secure_filename
 import random
+import subprocess
 
 # 라즈베리파이의 실제 IP 주소로 변경
 DESTINATION_URL = "http://192.168.0.90:5000/receive"  # http:// 추가 및 포트 5000
@@ -44,8 +45,15 @@ def recieve_image():
             if not os.path.exists(upload_dir):
                 os.makedirs(upload_dir)
 
-            filename = secure_filename(file.filename)
-            file.save(os.path.join(upload_dir, filename))
+            filename = os.path.join(upload_dir, secure_filename(file.filename))
+            file.save(filename)
+            subprocess.Popen(
+                [
+                    "python3",
+                    "/home/ubuntu07/workingspace/intel_class_md/Intel_final_project/Intel07_Intelproject_Team3/AI/infer_skin_sever.py",
+                    filename,
+                ]
+            )
         elif TEST:
             random_test_data: dict = {
                 "forehead": {
@@ -79,7 +87,8 @@ def recieve_image():
                 {
                     "status": "success",
                     "message": "Image uploaded successfully!",
-                    "filename": "filename",  # filename
+                    # "filename": filename,
+                    "filename": "filename",
                 }
             ),
             200,
