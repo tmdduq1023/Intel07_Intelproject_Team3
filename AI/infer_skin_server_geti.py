@@ -173,7 +173,7 @@ def send_results_to_server(results, server_url):
 
 def send_detection_failure_to_server(missing_parts, server_url):
     try:
-        error_message = f"ROI 탐지 실패: {', '.join(missing_parts)}"
+        error_message = f"ROI detection failed : {', '.join(missing_parts)}"
         payload = {"error": error_message}
         print("\n--- 탐지 실패 전송 ---")
         print("Payload:", json.dumps(payload, indent=2))
