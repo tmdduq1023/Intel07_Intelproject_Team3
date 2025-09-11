@@ -1,11 +1,4 @@
 
-'''
-ROI(부위) 기반 피부 분석 서버 스크립트
-- STAGE 1: 얼굴 부위(ROI) 디텍션 (Intel Geti Model)
-- STAGE 2: 피부 특성 분석 (멀티헤드 분류 + 회귀 모델)
-- STAGE 3: 분석 결과를 Flask 서버로 전송
-'''
-
 import torch
 from PIL import Image
 import numpy as np
@@ -27,7 +20,7 @@ except ImportError:
     print("Error: geti-sdk is not installed. Please run: pip install geti-sdk==2.6.*")
     sys.exit(1)
 
-# --- STAGE 2: Skin Feature Analysis Model Definition (기존과 동일) ---
+# --- STAGE 2: Skin Feature Analysis Model Definition ---
 class RoiMultiHead(nn.Module):
     def __init__(self, backbone="resnet50", roi_label_space=None, pretrained=True):
         super().__init__()
@@ -74,14 +67,14 @@ SERVER_URL = "http://127.0.0.1:5000/receive"
 GETI_DEPLOYMENT_PATH = 'geti_face_v2/deployment'
 
 # --- STAGE 2 Config (Skin Analysis) ---
-SKIN_MODEL_PATH = 'runs/skin_roi_v4/best_0910.pth'
+SKIN_MODEL_PATH = 'runs/skin_roi_v4/best.pth'
 
 # --- STAGE 1: GETI ROI DETECTION ---
 def load_geti_deployment(deployment_path):
     print("Loading Intel Geti deployment...")
     deployment = Deployment.from_folder(deployment_path)
     print("Loading inference models to device...")
-    deployment.load_inference_models(device="CPU") # Geti SDK works best with CPU
+    deployment.load_inference_models(device="CPU")
     return deployment
 
 def detect_rois_with_geti(deployment, image_path):
@@ -99,18 +92,13 @@ def detect_rois_with_geti(deployment, image_path):
     for annotation in prediction.annotations:
         shape = annotation.shape
         box = [int(shape.x), int(shape.y), int(shape.x + shape.width), int(shape.y + shape.height)]
-        label_name = annotation.get_labels()[0].name
+        label_name = annotation.labels[0].name
 
-        # Heuristic to differentiate left and right cheek
         if label_name == 'cheek':
             box_center_x = box[0] + (box[2] - box[0]) / 2
-            if box_center_x < image_center_x:
-                # This is the person's right cheek, which is on the left side of the image
-                final_label = 'facepart::right_cheek'
-            else:
-                final_label = 'facepart::left_cheek'
+            final_label = 'facepart::right_cheek' if box_center_x < image_center_x else 'facepart::left_cheek'
         elif label_name == 'lip':
-             final_label = 'facepart::lips' # Match the label name expected by skin model
+             final_label = 'facepart::lips'
         else:
             final_label = f"facepart::{label_name}"
 
@@ -120,10 +108,10 @@ def detect_rois_with_geti(deployment, image_path):
         })
     return Image.fromarray(image_rgb), detected_rois
 
-# --- STAGE 2: SKIN ANALYSIS (기존과 동일) ---
+# --- STAGE 2: SKIN ANALYSIS ---
 def load_skin_model(model_path):
     ckpt = torch.load(model_path, map_location=DEVICE)
-    model = RoiMultiHead(backbone='convnext_large', roi_label_space=ckpt['roi_label_space'])
+    model = RoiMultiHead(backbone='convnext_tiny', roi_label_space=ckpt['roi_label_space'])
     model.load_state_dict(ckpt['model'])
     model.to(DEVICE)
     model.eval()
@@ -155,11 +143,11 @@ def analyze_skin(skin_model, roi_label_space, reg_std, cropped_image, roi_name):
             logits = cls_pred[0][i]
             predicted_idx = logits.argmax(dim=1).item()
             idx_to_val_map = cls_maps.get(key, {}).get('idx_to_val', {})
-            predicted_value = idx_to_val_map.get(str(predicted_idx), 'Error')
+            predicted_value = idx_to_val_map.get(str(predicted_idx), idx_to_val_map.get(predicted_idx, 'Error'))
             results[key] = predicted_value
     return results
 
-# --- STAGE 3: SERVER SEND (기존과 동일) ---
+# --- STAGE 3: SERVER SEND ---
 def send_results_to_server(results, server_url):
     try:
         payload = {
@@ -179,6 +167,26 @@ def send_results_to_server(results, server_url):
     except Exception as e:
         print(f"\nAn unexpected error occurred during data transformation or sending: {e}")
 
+def send_detection_failure_to_server(missing_parts, server_url):
+    """Sends a detection failure message to the server."""
+    try:
+        error_message = f"ROI detection failed: {', '.join(missing_parts)}"
+        payload = {"error": error_message}
+        
+        print("\n--- Sending Detection Failure to Server ---")
+        print("Payload:", json.dumps(payload, indent=2))
+        
+        response = requests.post(server_url, json=payload, timeout=5)
+        response.raise_for_status()
+        
+        print(f"Server Response ({response.status_code}): {response.json()}")
+
+    except requests.exceptions.RequestException as e:
+        print(f"\nError: Could not connect to the server at {server_url}. Details: {e}")
+    except Exception as e:
+        print(f"\nAn unexpected error occurred while sending failure report: {e}")
+
+
 # --- MAIN ---
 if __name__ == "__main__":
     if len(sys.argv) < 2:
@@ -194,16 +202,22 @@ if __name__ == "__main__":
     geti_deployment = load_geti_deployment(GETI_DEPLOYMENT_PATH)
     skin_model, skin_label_space, skin_reg_std = load_skin_model(SKIN_MODEL_PATH)
     
-    print("\n--- Stage 1: Detecting Face ROIs with Intel Geti ---")
+    print("--- Stage 1: Detecting Face ROIs with Intel Geti ---")
     original_image, detected_rois = detect_rois_with_geti(geti_deployment, input_image_path)
     
-    if not detected_rois:
-        print("No ROIs were detected in the image.")
+    # --- Check for missing ROIs ---
+    expected_rois = {'facepart::forehead', 'facepart::lips', 'facepart::left_cheek', 'facepart::right_cheek', 'facepart::chin'}
+    detected_labels = {r['label_name'] for r in detected_rois}
+    missing_rois = expected_rois - detected_labels
+
+    if missing_rois:
+        print(f"\nWarning: The following ROIs were not detected: {', '.join(missing_rois)}")
+        send_detection_failure_to_server(list(missing_rois), SERVER_URL)
         sys.exit(0)
 
     print(f"\nDetected {len(detected_rois)} ROIs: {[r['label_name'] for r in detected_rois]}")
 
-    print("\n--- Stage 2: Analyzing Skin Features per ROI ---")
+    print("--- Stage 2: Analyzing Skin Features per ROI ---")
     final_results = defaultdict(dict)
     for roi_info in detected_rois:
         if '::' not in roi_info['label_name']:
@@ -215,8 +229,10 @@ if __name__ == "__main__":
         analysis_results = analyze_skin(skin_model, skin_label_space, skin_reg_std, cropped_roi, roi_name)
         final_results[roi_name] = analysis_results
         
-    print("\n--- FINAL RESULTS ---")
+    print("--- FINAL RESULTS ---")
     print(json.dumps(final_results, indent=2, ensure_ascii=False))
 
     # --- STAGE 3: 서버로 결과 전송 ---
     send_results_to_server(final_results, SERVER_URL)
+
+
