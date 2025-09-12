@@ -1,7 +1,11 @@
 #include "analysisresultdialog.h"
+#include "nameinputdialog.h"
 #include <QApplication>
 #include <QFont>
 #include <QFrame>
+#include <QJsonArray>
+#include <QMetaObject>
+#include <QDebug>
 #include <QtCharts/QChart>
 #include <QtCharts/QBarSeries>
 #include <QtCharts/QBarSet>
@@ -12,7 +16,7 @@
 QT_CHARTS_USE_NAMESPACE
 
 AnalysisResultDialog::AnalysisResultDialog(QJsonObject analysisData, QString userName, QWidget *parent)
-    : QDialog(parent), analysisData(analysisData), userName(userName), isComparison(false)
+    : QDialog(parent), analysisData(analysisData), userName(userName), isComparison(false), recommendationViewed(false)
 {
     setWindowTitle(QString("피부 분석 결과 - %1").arg(userName.isEmpty() ? "사용자" : userName));
     setModal(true);
@@ -33,7 +37,7 @@ AnalysisResultDialog::AnalysisResultDialog(QJsonObject analysisData, QString use
 }
 
 AnalysisResultDialog::AnalysisResultDialog(QJsonObject currentData, QJsonObject previousData, QString userName, QWidget *parent)
-    : QDialog(parent), analysisData(currentData), previousData(previousData), userName(userName), isComparison(true)
+    : QDialog(parent), analysisData(currentData), previousData(previousData), userName(userName), isComparison(true), recommendationViewed(false)
 {
     setWindowTitle(QString("피부 분석 비교 - %1").arg(userName.isEmpty() ? "사용자" : userName));
     setModal(true);
@@ -123,7 +127,11 @@ void AnalysisResultDialog::setupUI()
         "}"
     );
     
-    connect(closeButton, &QPushButton::clicked, this, &QDialog::accept);
+    connect(closeButton, &QPushButton::clicked, [this]() {
+        this->accept();
+        // 항상 이름 입력 창으로 이동
+        showNameInputDialog();
+    });
     mainLayout->addWidget(closeButton);
 }
 
@@ -137,6 +145,33 @@ void AnalysisResultDialog::displayAnalysisData(const QJsonObject &data)
     QChartView *chartView = createUnifiedBarChart(data);
     contentLayout->addWidget(chartView);
     
+    // 추천 화장품 버튼 추가
+    QPushButton *recommendationButton = new QPushButton("추천 화장품 보기");
+    recommendationButton->setMinimumHeight(40);
+    recommendationButton->setStyleSheet(
+        "QPushButton {"
+        "  background-color: #27ae60;"
+        "  border: none;"
+        "  color: white;"
+        "  padding: 8px 16px;"
+        "  border-radius: 6px;"
+        "  font-size: 14px;"
+        "  font-weight: bold;"
+        "}"
+        "QPushButton:hover {"
+        "  background-color: #2ecc71;"
+        "}"
+        "QPushButton:pressed {"
+        "  background-color: #229954;"
+        "}"
+    );
+    
+    connect(recommendationButton, &QPushButton::clicked, [this, data]() {
+        showRecommendationsDialog(data);
+        recommendationViewed = true; // 추천을 봤다고 표시
+    });
+    
+    contentLayout->addWidget(recommendationButton);
     contentLayout->addStretch();
 }
 
@@ -301,6 +336,33 @@ void AnalysisResultDialog::displayComparisonData(const QJsonObject &currentData,
     QChartView *chartView = createUnifiedComparisonChart(currentData, previousData);
     contentLayout->addWidget(chartView);
     
+    // 추천 화장품 버튼 추가 (현재 데이터 기준)
+    QPushButton *recommendationButton = new QPushButton("추천 화장품 보기");
+    recommendationButton->setMinimumHeight(40);
+    recommendationButton->setStyleSheet(
+        "QPushButton {"
+        "  background-color: #27ae60;"
+        "  border: none;"
+        "  color: white;"
+        "  padding: 8px 16px;"
+        "  border-radius: 6px;"
+        "  font-size: 14px;"
+        "  font-weight: bold;"
+        "}"
+        "QPushButton:hover {"
+        "  background-color: #2ecc71;"
+        "}"
+        "QPushButton:pressed {"
+        "  background-color: #229954;"
+        "}"
+    );
+    
+    connect(recommendationButton, &QPushButton::clicked, [this, currentData]() {
+        showRecommendationsDialog(currentData);
+        recommendationViewed = true; // 추천을 봤다고 표시
+    });
+    
+    contentLayout->addWidget(recommendationButton);
     contentLayout->addStretch();
 }
 
@@ -593,6 +655,226 @@ QChartView* AnalysisResultDialog::createUnifiedBarChart(const QJsonObject &data)
     }
     
     return chartView;
+}
+
+QWidget* AnalysisResultDialog::createRecommendationsWidget(const QJsonObject &data)
+{
+    // recommendations 배열이 있는지 확인
+    if (!data.contains("recommendations") || !data["recommendations"].isArray()) {
+        return nullptr;
+    }
+    
+    QJsonArray recommendations = data["recommendations"].toArray();
+    if (recommendations.isEmpty()) {
+        return nullptr;
+    }
+    
+    // 추천 문구 위젯 생성
+    QGroupBox *groupBox = new QGroupBox("제품 추천");
+    groupBox->setStyleSheet(
+        "QGroupBox {"
+        "  font-weight: bold;"
+        "  font-size: 14px;"
+        "  color: #2c3e50;"
+        "  border: 2px solid #3498db;"
+        "  border-radius: 8px;"
+        "  margin-top: 10px;"
+        "  padding-top: 12px;"
+        "  background-color: #f8f9fa;"
+        "}"
+        "QGroupBox::title {"
+        "  subcontrol-origin: margin;"
+        "  left: 12px;"
+        "  padding: 0 8px 0 8px;"
+        "  color: #3498db;"
+        "}"
+    );
+    
+    QVBoxLayout *layout = new QVBoxLayout(groupBox);
+    layout->setSpacing(10);
+    layout->setContentsMargins(15, 20, 15, 15);
+    
+    // 안내 메시지
+    QLabel *infoLabel = new QLabel("분석 결과에 따른 추천 제품:");
+    QFont infoFont = infoLabel->font();
+    infoFont.setPointSize(12);
+    infoFont.setBold(false);
+    infoLabel->setFont(infoFont);
+    infoLabel->setStyleSheet("color: #34495e; margin-bottom: 8px;");
+    layout->addWidget(infoLabel);
+    
+    // 추천 목록을 그리드로 배치
+    QGridLayout *gridLayout = new QGridLayout();
+    gridLayout->setSpacing(10);
+    gridLayout->setContentsMargins(0, 0, 0, 0);
+    
+    int row = 0;
+    int col = 0;
+    const int maxCols = 3; // 한 줄에 최대 3개
+    
+    for (int i = 0; i < recommendations.size(); ++i) {
+        QString recommendation = recommendations[i].toString();
+        
+        QLabel *recLabel = new QLabel(recommendation);
+        QFont recFont = recLabel->font();
+        recFont.setPointSize(11);
+        recFont.setBold(true);
+        recLabel->setFont(recFont);
+        recLabel->setAlignment(Qt::AlignCenter);
+        recLabel->setStyleSheet(
+            "QLabel {"
+            "  background-color: #3498db;"
+            "  color: white;"
+            "  padding: 8px 12px;"
+            "  border-radius: 6px;"
+            "  margin: 2px;"
+            "}"
+        );
+        recLabel->setMinimumHeight(35);
+        recLabel->setMinimumWidth(120);
+        
+        gridLayout->addWidget(recLabel, row, col);
+        
+        col++;
+        if (col >= maxCols) {
+            col = 0;
+            row++;
+        }
+    }
+    
+    layout->addLayout(gridLayout);
+    
+    return groupBox;
+}
+
+void AnalysisResultDialog::showRecommendationsDialog(const QJsonObject &data)
+{
+    // recommendations 배열이 있는지 확인
+    if (!data.contains("recommendations") || !data["recommendations"].isArray()) {
+        QMessageBox::information(this, "알림", "추천 데이터가 없습니다.");
+        return;
+    }
+    
+    QJsonArray recommendations = data["recommendations"].toArray();
+    if (recommendations.isEmpty()) {
+        QMessageBox::information(this, "알림", "추천할 제품이 없습니다.");
+        return;
+    }
+    
+    // 추천 다이얼로그 생성
+    QDialog *recommendDialog = new QDialog(this);
+    recommendDialog->setWindowTitle("추천 화장품");
+    recommendDialog->setModal(true);
+    recommendDialog->resize(400, 300);
+    
+    QVBoxLayout *layout = new QVBoxLayout(recommendDialog);
+    layout->setSpacing(15);
+    layout->setContentsMargins(20, 20, 20, 20);
+    
+    // 제목
+    QLabel *titleLabel = new QLabel("분석 결과에 따른 추천 제품");
+    QFont titleFont = titleLabel->font();
+    titleFont.setPointSize(16);
+    titleFont.setBold(true);
+    titleLabel->setFont(titleFont);
+    titleLabel->setAlignment(Qt::AlignCenter);
+    titleLabel->setStyleSheet("color: #2c3e50; margin-bottom: 15px;");
+    layout->addWidget(titleLabel);
+    
+    // 추천 목록을 그리드로 배치
+    QGridLayout *gridLayout = new QGridLayout();
+    gridLayout->setSpacing(10);
+    gridLayout->setContentsMargins(0, 0, 0, 0);
+    
+    int row = 0;
+    int col = 0;
+    const int maxCols = 2; // 한 줄에 최대 2개
+    
+    for (int i = 0; i < recommendations.size(); ++i) {
+        QString recommendation = recommendations[i].toString();
+        
+        QLabel *recLabel = new QLabel(recommendation);
+        QFont recFont = recLabel->font();
+        recFont.setPointSize(12);
+        recFont.setBold(true);
+        recLabel->setFont(recFont);
+        recLabel->setAlignment(Qt::AlignCenter);
+        recLabel->setStyleSheet(
+            "QLabel {"
+            "  background-color: #3498db;"
+            "  color: white;"
+            "  padding: 12px 16px;"
+            "  border-radius: 8px;"
+            "  margin: 4px;"
+            "}"
+        );
+        recLabel->setMinimumHeight(50);
+        recLabel->setMinimumWidth(150);
+        
+        gridLayout->addWidget(recLabel, row, col);
+        
+        col++;
+        if (col >= maxCols) {
+            col = 0;
+            row++;
+        }
+    }
+    
+    layout->addLayout(gridLayout);
+    layout->addStretch();
+    
+    // 닫기 버튼
+    QPushButton *closeButton = new QPushButton("닫기");
+    closeButton->setMinimumHeight(35);
+    closeButton->setStyleSheet(
+        "QPushButton {"
+        "  background-color: #95a5a6;"
+        "  border: none;"
+        "  color: white;"
+        "  padding: 8px 16px;"
+        "  border-radius: 6px;"
+        "  font-size: 12px;"
+        "}"
+        "QPushButton:hover {"
+        "  background-color: #7f8c8d;"
+        "}"
+    );
+    
+    connect(closeButton, &QPushButton::clicked, [recommendDialog, this]() {
+        recommendDialog->accept();
+        // 추천 다이얼로그 닫기 후 분석 결과 다이얼로그도 닫고 이름 입력으로 이동
+        this->accept();
+        showNameInputDialog();
+    });
+    layout->addWidget(closeButton);
+    
+    recommendDialog->exec();
+}
+
+void AnalysisResultDialog::showNameInputDialog()
+{
+    // QApplication을 통해 모든 위젯을 검색해서 MainWindow 찾기
+    QWidgetList widgets = QApplication::allWidgets();
+    QWidget *mainWindow = nullptr;
+    
+    for (QWidget *widget : widgets) {
+        if (widget->metaObject()->className() == QString("MainWindow")) {
+            mainWindow = widget;
+            break;
+        }
+    }
+    
+    if (mainWindow) {
+        // MainWindow의 openNameInputDialog 메서드 호출
+        qDebug() << "MainWindow found, calling openNameInputDialog";
+        QMetaObject::invokeMethod(mainWindow, "openNameInputDialog");
+    } else {
+        // MainWindow를 찾지 못하면 직접 다이얼로그 생성
+        qDebug() << "MainWindow not found, creating dialog directly";
+        NameInputDialog *nameDialog = new NameInputDialog(nullptr);
+        nameDialog->exec();
+        delete nameDialog;
+    }
 }
 
 QChartView* AnalysisResultDialog::createUnifiedComparisonChart(const QJsonObject &currentData, const QJsonObject &previousData)

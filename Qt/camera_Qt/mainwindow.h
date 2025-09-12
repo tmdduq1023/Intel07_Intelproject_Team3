@@ -39,6 +39,7 @@ private slots:
     void onUploadProgress(qint64 bytesSent, qint64 bytesTotal);
     void fetchAnalysisResult();
     void showNameInputDialog();
+    void openNameInputDialog(); // 새 함수 추가
     void initializeDatabase();
 
 private:

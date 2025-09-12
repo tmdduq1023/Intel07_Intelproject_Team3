@@ -59,25 +59,25 @@ def recieve_image():
                 "forehead": {
                     "moisture": random.randint(0, 100),
                     "elasticity": random.randint(0, 100),
-                    "pigmentation": random.randint(0, 100),
+                    "pigmentation": random.randint(0, 5),
                 },
                 "l_check": {
                     "moisture": random.randint(0, 100),
                     "elasticity": random.randint(0, 100),
-                    "pigmentation": random.randint(0, 100),
-                    "pore": random.randint(0, 100),
+                    "pigmentation": random.randint(0, 5),
+                    "pore": random.randint(0, 5),
                 },
                 "r_check": {
                     "moisture": random.randint(0, 100),
                     "elasticity": random.randint(0, 100),
-                    "pigmentation": random.randint(0, 100),
-                    "pore": random.randint(0, 100),
+                    "pigmentation": random.randint(0, 5),
+                    "pore": random.randint(0, 5),
                 },
                 "chin": {
                     "moisture": random.randint(0, 100),
                     "elasticity": random.randint(0, 100),
                 },
-                "lib": {"elasticity": random.randint(0, 100)},
+                "lib": {"dryness": random.randint(0, 4)},
             }
             send_json(random_test_data)
 

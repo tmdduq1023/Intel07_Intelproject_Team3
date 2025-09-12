@@ -38,37 +38,28 @@ def receive_json():
         ]
         print(f"분석 결과 수신: {parts}")
 
-        # 최신 분석 데이터 저장
-        latest_analysis_data = payload
-
         # uart 데이터 가공
         moisture_average = (
-            sum(
-                payload["forehead"]["moisture"],
-                payload["r_check"]["moisture"],
-                payload["r_check"]["moisture"],
-                payload["chin"]["moisture"],
-            )
-            / 4
-        )
+            payload["forehead"]["moisture"] +
+            payload["l_check"]["moisture"] +
+            payload["r_check"]["moisture"] +
+            payload["chin"]["moisture"]
+        ) / 4
+        
         elasticity_average = (
-            sum(
-                payload["forehead"]["elasticity"],
-                payload["l_check"]["elasticity"],
-                payload["r_check"]["elasticity"],
-                payload["chin"]["elasticity"],
-            )
-            / 4
-        )
+            payload["forehead"]["elasticity"] +
+            payload["l_check"]["elasticity"] +
+            payload["r_check"]["elasticity"] +
+            payload["chin"]["elasticity"]
+        ) / 4
+        
         pigmentation_average = (
-            sum(
-                payload["forehead"]["pigmentation"],
-                payload["l_check"]["pigmentation"],
-                payload["r_check"]["pigmentation"],
-            )
-            / 3
-        )
-        pore_average = sum(payload["l_check"]["pore"], payload["r_check"]["pore"]) / 2
+            payload["forehead"]["pigmentation"] +
+            payload["l_check"]["pigmentation"] +
+            payload["r_check"]["pigmentation"]
+        ) / 3
+        
+        pore_average = (payload["l_check"]["pore"] + payload["r_check"]["pore"]) / 2
         lib_dryness = payload["lib"]["dryness"]
 
         if moisture_average <= 60:
@@ -95,6 +86,29 @@ def receive_json():
             lib_dryness_flag = 1
         else:
             lib_dryness_flag = 0
+
+        # 추천 문구 생성
+        recommendations = []
+        print(f"Flag 값들: mositure={mositure_flag}, elasticity={elasticity_flag}, pigmentation={pigmentation_flag}, pore={pore_flag}, lib_dryness={lib_dryness_flag}")
+        
+        if mositure_flag == 1:
+            recommendations.append("수분크림 추천")
+        if elasticity_flag == 1:
+            recommendations.append("탄력크림 추천")
+        if pigmentation_flag == 1:
+            recommendations.append("미백크림 추천")
+        if pore_flag == 1:
+            recommendations.append("모공크림 추천")
+        if lib_dryness_flag == 1:
+            recommendations.append("립밤 추천")
+
+        print(f"생성된 추천 문구: {recommendations}")
+
+        # 추천 문구를 payload에 추가
+        payload["recommendations"] = recommendations
+
+        # 최신 분석 데이터 저장 (추천 문구 포함)
+        latest_analysis_data = payload
 
         # UART로 하드웨어에 전송
         data = "@".join(

@@ -1015,3 +1015,19 @@ void MainWindow::resizeEvent(QResizeEvent *event)
         QTimer::singleShot(10, this, &MainWindow::updateOverlayPosition);
     }
 }
+
+void MainWindow::openNameInputDialog()
+{
+    qDebug() << "openNameInputDialog called";
+    NameInputDialog nameDialog(this);
+    if (nameDialog.exec() == QDialog::Accepted) {
+        QString name = nameDialog.getUserName();
+        if (!name.isEmpty()) {
+            currentUserName = name; // currentUserName 업데이트 추가
+            isNameEntered = true;
+            setWindowTitle(QString("피부 분석 시스템 - %1").arg(name));
+            qDebug() << "Name entered:" << name;
+            ui->statusbar->showMessage(QString("사용자: %1님, 환영합니다!").arg(currentUserName), 3000);
+        }
+    }
+}
