@@ -220,7 +220,7 @@ v4l2-ctl --list-devices  # Linux camera detection
 - **AI Inference**: Real inference uses `infer_skin_server.py` with subprocess.Popen for parallel processing
 - **Error Handling**: All Flask endpoints return proper JSON error responses with HTTP status codes
 - **Timeout Configuration**: HTTP requests use 30-second timeout for robustness
-- **Critical Fix**: In `node.py:line 50-56`, the subprocess call has a bug - `{filename}` should be `filename` (without quotes)
+- **Critical Fix**: In `node.py:line 50-56`, the subprocess call has a bug - the file path `infer_skin_sever.py` should be `infer_skin_server.py` (typo in "sever")
 
 ### UART Communication Protocol
 - **Data Format**: 14 numerical values joined by "@" delimiter in specific order:
@@ -235,7 +235,7 @@ v4l2-ctl --list-devices  # Linux camera detection
 - **Error Recovery**: UART operations include proper exception handling and reconnection logic
 
 ### Development Workflow
-- **Branch Strategy**: Current branch is `image_receive`, main branch is `main`
-- **Modified Files**: `Server/node.py` and `Server/rasp.py` have uncommitted changes
+- **Branch Strategy**: Current branch is `QT-Sever_modi`, main branch is `main`
+- **Active Branches**: `QT-Sever_modi`, `Server`, `cameraMergeServer`, `image_receive` (various development streams)
 - **Qt Build Process**: Always run `make clean` before rebuilding to avoid stale object files
-- **Virtual Environment**: Server dependencies are pre-installed in `Server/venv/`
+- **Virtual Environment**: Server dependencies are pre-installed in `Server/venv/` (Python 3.10.12)

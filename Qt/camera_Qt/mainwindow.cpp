@@ -36,6 +36,11 @@ MainWindow::MainWindow(QWidget *parent)
     , guideTextItem(nullptr)
     , isCameraRunning(false)
     , isNameEntered(false)
+    , previewTimer(nullptr)
+    , cameraPreviewLabel(nullptr)
+    , useRpiCam(true)  // rpicam 모드 기본 활성화
+    , gstreamerProcess(nullptr)
+    , videoWidget(nullptr)
 {
     ui->setupUi(this);
 
@@ -132,14 +137,107 @@ void MainWindow::setupCamera()
         return;
     }
 
-    // 기본 카메라 사용
-    camera = std::make_unique<QCamera>(availableCameras.first());
+    // 라즈베리파이 카메라 모듈을 위한 선호 순서 설정
+    QCameraInfo selectedCamera;
+    bool cameraFound = false;
+    
+    // 디버그 정보 출력
+    qDebug() << "Available cameras:";
+    for (const auto& cameraInfo : availableCameras) {
+        qDebug() << " -" << cameraInfo.deviceName() << ":" << cameraInfo.description();
+    }
+    
+    // 라즈베리파이 카메라 모듈 우선 선택 - libcamera 호환성 개선
+    for (const auto& cameraInfo : availableCameras) {
+        QString deviceName = cameraInfo.deviceName().toLower();
+        QString description = cameraInfo.description().toLower();
+        
+        qDebug() << "Checking camera:" << deviceName << description;
+        
+        // 라즈베리파이 카메라 모듈 식별 (unicam, libcamera, rpicam 지원)
+        if (deviceName.contains("video0") || 
+            description.contains("unicam") ||
+            description.contains("bcm2835") || 
+            description.contains("mmal") ||
+            description.contains("raspberry") ||
+            description.contains("camera") ||
+            description.contains("libcamera")) {
+            selectedCamera = cameraInfo;
+            cameraFound = true;
+            qDebug() << "Selected Raspberry Pi camera:" << cameraInfo.description();
+            qDebug() << "Device name:" << cameraInfo.deviceName();
+            break;
+        }
+    }
+    
+    // 라즈베리파이 카메라를 찾지 못했으면 첫 번째 카메라 사용
+    if (!cameraFound) {
+        selectedCamera = availableCameras.first();
+        qDebug() << "Using first available camera:" << selectedCamera.description();
+    }
+
+    // 선택된 카메라로 초기화
+    camera = std::make_unique<QCamera>(selectedCamera);
+    
+    // libcamera 호환을 위한 카메라 설정 - 다양한 포맷 시도
+    QCameraViewfinderSettings viewfinderSettings;
+    viewfinderSettings.setResolution(640, 480);  // 안정적인 해상도로 시작
+    
+    // 여러 픽셀 포맷 중 호환되는 것을 자동 선택하도록 함
+    QList<QVideoFrame::PixelFormat> preferredFormats = {
+        QVideoFrame::Format_YUYV,      // YUV 422 - 라즈베리파이에서 일반적
+        QVideoFrame::Format_YV12,      // YUV 420
+        QVideoFrame::Format_NV12,      // YUV 420 SP
+        QVideoFrame::Format_RGB24,     // RGB 24
+        QVideoFrame::Format_RGB32,     // RGB 32
+        QVideoFrame::Format_BGR24,     // BGR 24
+        QVideoFrame::Format_Invalid    // 자동 선택
+    };
+    
+    // 지원되는 포맷 확인
+    QList<QCameraViewfinderSettings> supportedSettings = camera->supportedViewfinderSettings(viewfinderSettings);
+    qDebug() << "Supported viewfinder settings count:" << supportedSettings.size();
+    
+    bool formatSet = false;
+    for (const auto& format : preferredFormats) {
+        viewfinderSettings.setPixelFormat(format);
+        
+        // 지원 여부 확인
+        for (const auto& supportedSetting : supportedSettings) {
+            if (supportedSetting.pixelFormat() == format || format == QVideoFrame::Format_Invalid) {
+                qDebug() << "Trying pixel format:" << format;
+                camera->setViewfinderSettings(viewfinderSettings);
+                formatSet = true;
+                break;
+            }
+        }
+        if (formatSet) break;
+    }
+    
+    if (!formatSet) {
+        qDebug() << "Using default settings without specific pixel format";
+        viewfinderSettings.setPixelFormat(QVideoFrame::Format_Invalid); // 자동 선택
+    }
+    
+    viewfinderSettings.setMinimumFrameRate(15);  // 최소 프레임레이트
+    viewfinderSettings.setMaximumFrameRate(30);  // 최대 프레임레이트
+    
+    camera->setViewfinderSettings(viewfinderSettings);
+    qDebug() << "Final camera viewfinder settings:" << viewfinderSettings.resolution() << viewfinderSettings.pixelFormat();
 
     // 카메라 출력을 비디오 아이템에 연결
     camera->setViewfinder(videoItem.get());
 
     // 이미지 캡처 설정
     imageCapture = std::make_unique<QCameraImageCapture>(camera.get());
+    
+    // 캡처 설정 최적화
+    QImageEncoderSettings imageSettings;
+    imageSettings.setCodec("image/jpeg");
+    imageSettings.setResolution(640, 480);
+    imageSettings.setQuality(QMultimedia::HighQuality);
+    imageCapture->setEncodingSettings(imageSettings);
+    qDebug() << "Image capture settings applied";
 
     // 캡처 이미지 처리 시그널 연결
     connect(imageCapture.get(), &QCameraImageCapture::imageCaptured,
@@ -148,6 +246,37 @@ void MainWindow::setupCamera()
     // 카메라 에러 처리
     connect(camera.get(), QOverload<QCamera::Error>::of(&QCamera::error),
             this, &MainWindow::displayCameraError);
+    
+    // 카메라 상태 변경 로그
+    connect(camera.get(), &QCamera::statusChanged,
+            [this](QCamera::Status status) {
+                QString statusStr;
+                switch(status) {
+                    case QCamera::UnavailableStatus: statusStr = "Unavailable"; break;
+                    case QCamera::UnloadedStatus: statusStr = "Unloaded"; break;
+                    case QCamera::LoadingStatus: statusStr = "Loading"; break;
+                    case QCamera::UnloadingStatus: statusStr = "Unloading"; break;
+                    case QCamera::LoadedStatus: statusStr = "Loaded"; break;
+                    case QCamera::StandbyStatus: statusStr = "Standby"; break;
+                    case QCamera::StartingStatus: statusStr = "Starting"; break;
+                    case QCamera::StoppingStatus: statusStr = "Stopping"; break;
+                    case QCamera::ActiveStatus: 
+                        statusStr = "Active"; 
+                        qDebug() << "Camera successfully activated!";
+                        break;
+                }
+                qDebug() << "Camera status changed to:" << statusStr;
+                
+                // Active 상태에서 즉시 정지하는 문제 방지
+                if (status == QCamera::ActiveStatus && camera && camera->state() == QCamera::UnloadedState) {
+                    qWarning() << "Camera stopped unexpectedly, attempting to restart...";
+                    QTimer::singleShot(1000, [this]() {
+                        if (camera && camera->state() == QCamera::UnloadedState) {
+                            camera->start();
+                        }
+                    });
+                }
+            });
 
     // 카메라 상태 변경 시 UI 업데이트
     connect(camera.get(), &QCamera::stateChanged,
@@ -168,9 +297,43 @@ void MainWindow::setupCamera()
 
 void MainWindow::startCamera()
 {
+    if (useRpiCam) {
+        // rpicam 모드: GStreamer로 실시간 비디오 스트림
+        startGStreamerCamera();
+        isCameraRunning = true;
+        
+        if (ui->camStartButton) {
+            ui->camStartButton->setText("카메라 중지");
+        }
+        if (ui->snapShotButton) {
+            ui->snapShotButton->setEnabled(true);
+        }
+        
+        return;
+    }
+    
+    // 기존 Qt multimedia 모드
     if (!camera) {
         QMessageBox::warning(this, "Error", "Camera not initialized!");
         return;
+    }
+
+    qDebug() << "Starting camera with state:" << camera->state() << "status:" << camera->status();
+    
+    // 카메라가 로드되지 않은 경우 로드 대기
+    if (camera->status() == QCamera::UnavailableStatus) {
+        QMessageBox::warning(this, "Camera Error", 
+            "Camera is unavailable. Please check:\n"
+            "1. Camera module is enabled in raspi-config\n" 
+            "2. Camera cable is connected properly\n"
+            "3. Run 'vcgencmd get_camera' to verify");
+        return;
+    }
+    
+    // 카메라 로드 대기
+    if (camera->status() == QCamera::UnloadedStatus) {
+        camera->load();
+        // 로드 완료를 기다리지 않고 바로 시작 시도
     }
 
     camera->start();
@@ -181,11 +344,30 @@ void MainWindow::startCamera()
         videoItem->setSize(sceneRect.size());
         videoItem->setPos(0, 0);  // scene 왼쪽 상단에 위치
         ui->camViewer->fitInView(scene->sceneRect(), Qt::KeepAspectRatio);
+        
+        qDebug() << "Video item size set to:" << sceneRect.size();
+        qDebug() << "Camera viewfinder settings applied";
     }
 }
 
 void MainWindow::stopCamera()
 {
+    if (useRpiCam) {
+        // rpicam 모드: GStreamer 중지
+        stopGStreamerCamera();
+        isCameraRunning = false;
+        
+        if (ui->camStartButton) {
+            ui->camStartButton->setText("카메라 시작");
+        }
+        if (ui->snapShotButton) {
+            ui->snapShotButton->setEnabled(false);
+        }
+        
+        return;
+    }
+    
+    // 기존 Qt multimedia 모드
     if (camera) {
         camera->stop();
     }
@@ -209,6 +391,12 @@ void MainWindow::on_snapShotButton_clicked()
 {
     if (!isNameEntered) {
         QMessageBox::warning(this, "오류", "먼저 이름을 입력해주세요.");
+        return;
+    }
+
+    if (useRpiCam) {
+        // rpicam 모드: rpicam-still로 직접 촬영
+        captureWithRpicam();
         return;
     }
 
@@ -375,7 +563,22 @@ void MainWindow::onUploadProgress(qint64 bytesSent, qint64 bytesTotal)
 void MainWindow::displayCameraError()
 {
     if (camera) {
-        QMessageBox::critical(this, "Camera Error", camera->errorString());
+        QString errorMsg = QString("Camera Error: %1\n\n").arg(camera->errorString());
+        
+        // 추가 디버그 정보 제공
+        errorMsg += "Debug Information:\n";
+        errorMsg += QString("- Camera State: %1\n").arg(camera->state());
+        errorMsg += QString("- Camera Status: %1\n").arg(camera->status());
+        
+        // 해결 방법 제안
+        errorMsg += "\nTroubleshooting:\n";
+        errorMsg += "1. Check if camera is connected properly\n";
+        errorMsg += "2. Ensure camera module is enabled in raspi-config\n";
+        errorMsg += "3. Try running: vcgencmd get_camera\n";
+        errorMsg += "4. Check /dev/video* devices exist\n";
+        
+        qDebug() << "Camera error details:" << errorMsg;
+        QMessageBox::critical(this, "Camera Error", errorMsg);
     }
 }
 
@@ -754,13 +957,36 @@ void MainWindow::switchToCameraView()
     QWidget *newCentralWidget = new QWidget();
     setCentralWidget(newCentralWidget);
     
-    // 새로운 UI 요소들 생성
-    QGraphicsView *camViewer = new QGraphicsView(newCentralWidget);
+    if (useRpiCam) {
+        // rpicam 모드: 간단한 안내 라벨 사용
+        cameraPreviewLabel = new QLabel(newCentralWidget);
+        cameraPreviewLabel->setText("카메라 프리뷰는 별도 창에서 실행됩니다.\n\n'카메라 시작' 버튼을 클릭하세요.");
+        cameraPreviewLabel->setAlignment(Qt::AlignCenter);
+        cameraPreviewLabel->setStyleSheet(
+            "QLabel {"
+            "    background-color: #f8f9fa;"
+            "    border: 2px solid #3498db;"
+            "    border-radius: 8px;"
+            "    padding: 20px;"
+            "    font-size: 16px;"
+            "    color: #2c3e50;"
+            "}"
+        );
+        cameraPreviewLabel->setMinimumSize(640, 480);
+        
+        ui->camViewer = nullptr; // QGraphicsView 사용 안함
+        videoWidget = nullptr;   // GStreamer 위젯 사용 안함
+    } else {
+        // 기존 Qt multimedia 모드: QGraphicsView 사용
+        QGraphicsView *camViewer = new QGraphicsView(newCentralWidget);
+        ui->camViewer = camViewer;
+        cameraPreviewLabel = nullptr;
+    }
+    
     QPushButton *camStartButton = new QPushButton("카메라 시작", newCentralWidget);
     QPushButton *snapShotButton = new QPushButton("사진 촬영", newCentralWidget);
     
     // UI 포인터 업데이트
-    ui->camViewer = camViewer;
     ui->camStartButton = camStartButton;
     ui->snapShotButton = snapShotButton;
     ui->centralwidget = newCentralWidget;
@@ -770,14 +996,18 @@ void MainWindow::switchToCameraView()
     mainLayout->setContentsMargins(15, 15, 15, 15);
     mainLayout->setSpacing(20);  // 간격을 늘려서 버튼과 카메라 분리
 
-    // 카메라 뷰어를 동적 크기 조정 가능하게 설정
-    camViewer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
-    camViewer->setMinimumSize(480, 360);  // 최소 크기를 더 크게 설정 (16:9 비율)
-    camViewer->setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);  // 최대 크기 제한 제거
-    camViewer->setAlignment(Qt::AlignCenter);  // 중앙 정렬
-    
-    // 카메라 뷰어를 메인 레이아웃에 직접 추가하여 공간을 최대한 활용
-    mainLayout->addWidget(camViewer, 1);  // stretch factor를 1로 설정하여 확장 가능
+    if (useRpiCam && cameraPreviewLabel) {
+        // rpicam 모드: 안내 라벨 사용
+        cameraPreviewLabel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+        mainLayout->addWidget(cameraPreviewLabel, 1);
+    } else if (ui->camViewer) {
+        // 기존 Qt multimedia 모드: QGraphicsView 사용
+        ui->camViewer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+        ui->camViewer->setMinimumSize(480, 360);
+        ui->camViewer->setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
+        ui->camViewer->setAlignment(Qt::AlignCenter);
+        mainLayout->addWidget(ui->camViewer, 1);
+    }
 
     // 카메라와 버튼 사이에 여백 추가
     mainLayout->addSpacing(15);
@@ -836,23 +1066,25 @@ void MainWindow::switchToCameraView()
     buttonLayout->addStretch();
     mainLayout->addLayout(buttonLayout, 0);
     
-    // QGraphicsView 설정
-    scene = std::make_unique<QGraphicsScene>(this);
-    camViewer->setScene(scene.get());
-    
-    // 비디오 아이템 생성
-    videoItem = std::make_unique<QGraphicsVideoItem>();
-    scene->addItem(videoItem.get());
-    
     // 시그널 연결
     connect(camStartButton, &QPushButton::clicked, this, &MainWindow::on_camStartButton_clicked);
     connect(snapShotButton, &QPushButton::clicked, this, &MainWindow::on_snapShotButton_clicked);
     
-    // 카메라 오버레이 설정 (카메라 초기화보다 먼저)
-    setupCameraOverlay();
-    
-    // 카메라 초기화
-    setupCamera();
+    if (!useRpiCam && ui->camViewer) {
+        // 기존 Qt multimedia 모드에서만 QGraphicsView 설정
+        scene = std::make_unique<QGraphicsScene>(this);
+        ui->camViewer->setScene(scene.get());
+        
+        // 비디오 아이템 생성
+        videoItem = std::make_unique<QGraphicsVideoItem>();
+        scene->addItem(videoItem.get());
+        
+        // 카메라 오버레이 설정 (카메라 초기화보다 먼저)
+        setupCameraOverlay();
+        
+        // 카메라 초기화
+        setupCamera();
+    }
     
     // 상태바에 현재 사용자 표시
     ui->statusbar->showMessage(QString("현재 사용자: %1").arg(currentUserName), 5000);
@@ -1030,4 +1262,184 @@ void MainWindow::openNameInputDialog()
             ui->statusbar->showMessage(QString("사용자: %1님, 환영합니다!").arg(currentUserName), 3000);
         }
     }
+}
+
+void MainWindow::startGStreamerCamera()
+{
+    if (gstreamerProcess && gstreamerProcess->state() == QProcess::Running) {
+        qDebug() << "Camera process already running";
+        return;
+    }
+    
+    // 프로세스 생성
+    if (gstreamerProcess) {
+        delete gstreamerProcess;
+    }
+    
+    gstreamerProcess = new QProcess(this);
+    
+    // 가장 간단한 방법: rpicam-hello를 별도 창으로 실행
+    QStringList args;
+    args << "-t" << "0"          // 무한 실행
+         << "--width" << "640" 
+         << "--height" << "480";
+    
+    qDebug() << "Starting simple rpicam-hello with args:" << args.join(" ");
+    gstreamerProcess->start("rpicam-hello", args);
+    
+    if (!gstreamerProcess->waitForStarted(3000)) {
+        qDebug() << "Failed to start rpicam-hello:" << gstreamerProcess->errorString();
+        ui->statusbar->showMessage("카메라 시작 실패", 3000);
+        return;
+    }
+    
+    qDebug() << "rpicam-hello started successfully";
+    ui->statusbar->showMessage("카메라 프리뷰가 별도 창에서 실행됨", 2000);
+    
+    // 안내 라벨 업데이트
+    if (cameraPreviewLabel) {
+        cameraPreviewLabel->setText("✓ 카메라가 별도 창에서 실행 중입니다.\n\n사진을 촬영하려면 '사진 촬영' 버튼을 클릭하세요.");
+        cameraPreviewLabel->setStyleSheet(
+            "QLabel {"
+            "    background-color: #d4edda;"
+            "    border: 2px solid #28a745;"
+            "    border-radius: 8px;"
+            "    padding: 20px;"
+            "    font-size: 16px;"
+            "    color: #155724;"
+            "}"
+        );
+    }
+    
+    // 프로세스 종료 시그널 연결
+    connect(gstreamerProcess, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+            [this](int exitCode, QProcess::ExitStatus exitStatus) {
+                qDebug() << "Camera process finished with code:" << exitCode << "status:" << exitStatus;
+            });
+    
+    // 에러 출력 연결  
+    connect(gstreamerProcess, &QProcess::readyReadStandardError,
+            [this]() {
+                QByteArray data = gstreamerProcess->readAllStandardError();
+                qDebug() << "Camera stderr:" << data;
+            });
+}
+
+void MainWindow::stopGStreamerCamera()
+{
+    if (gstreamerProcess && gstreamerProcess->state() == QProcess::Running) {
+        qDebug() << "Stopping camera process";
+        
+        // 정상 종료 시도
+        gstreamerProcess->terminate();
+        
+        if (!gstreamerProcess->waitForFinished(3000)) {
+            // 강제 종료
+            qDebug() << "Force killing camera process";
+            gstreamerProcess->kill();
+            gstreamerProcess->waitForFinished(1000);
+        }
+        
+        qDebug() << "Camera process stopped";
+        ui->statusbar->showMessage("비디오 스트림 중지됨", 2000);
+    }
+}
+
+void MainWindow::captureWithRpicam()
+{
+    // 버튼 비활성화
+    ui->snapShotButton->setEnabled(false);
+    ui->snapShotButton->setText("촬영 중...");
+    ui->statusbar->showMessage(QString("촬영 중... 사용자: %1").arg(currentUserName), 2000);
+    
+    // 1단계: 먼저 rpicam-hello 프로세스 중지
+    if (gstreamerProcess && gstreamerProcess->state() == QProcess::Running) {
+        qDebug() << "Stopping rpicam-hello for capture...";
+        gstreamerProcess->terminate();
+        gstreamerProcess->waitForFinished(2000);
+    }
+    
+    // 2단계: rpicam-still로 고품질 이미지 캡처
+    QProcess *captureProcess = new QProcess(this);
+    QString tempFile = QString("/tmp/capture_%1.jpg").arg(QDateTime::currentMSecsSinceEpoch());
+    
+    QStringList args;
+    args << "-o" << tempFile         // 출력 파일
+         << "--width" << "1640"      // 고해상도
+         << "--height" << "1232"
+         << "--quality" << "95"      // 고품질
+         << "--nopreview"            // 프리뷰 창 비활성화
+         << "-t" << "1";             // 1ms만 실행 (즉시 촬영)
+    
+    qDebug() << "Capturing with rpicam-still:" << args.join(" ");
+    
+    // 비동기 실행
+    connect(captureProcess, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+            [this, captureProcess, tempFile](int exitCode, QProcess::ExitStatus exitStatus) {
+                Q_UNUSED(exitStatus);
+                
+                if (exitCode == 0 && QFile::exists(tempFile)) {
+                    // 이미지 로드 및 서버 전송
+                    QImage capturedImage(tempFile);
+                    if (!capturedImage.isNull()) {
+                        qDebug() << "Image captured successfully:" << capturedImage.size();
+                        uploadImageToServer(capturedImage);
+                        
+                        // 촬영 완료 후 rpicam-hello 다시 시작
+                        QTimer::singleShot(1000, this, &MainWindow::restartPreview);
+                    } else {
+                        qDebug() << "Failed to load captured image";
+                        ui->snapShotButton->setEnabled(true);
+                        ui->snapShotButton->setText("사진 촬영");
+                        QMessageBox::warning(this, "촬영 실패", "이미지를 불러올 수 없습니다.");
+                        
+                        // 실패해도 프리뷰 재시작
+                        QTimer::singleShot(1000, this, &MainWindow::restartPreview);
+                    }
+                    
+                    // 임시 파일 삭제
+                    QFile::remove(tempFile);
+                } else {
+                    qDebug() << "rpicam-still capture failed with code:" << exitCode;
+                    ui->snapShotButton->setEnabled(true);
+                    ui->snapShotButton->setText("사진 촬영");
+                    QMessageBox::warning(this, "촬영 실패", "카메라 촬영에 실패했습니다.");
+                    
+                    // 실패해도 프리뷰 재시작
+                    QTimer::singleShot(1000, this, &MainWindow::restartPreview);
+                }
+                
+                captureProcess->deleteLater();
+            });
+    
+    // 에러 처리
+    connect(captureProcess, &QProcess::errorOccurred,
+            [this, captureProcess, tempFile](QProcess::ProcessError error) {
+                Q_UNUSED(error);
+                qDebug() << "rpicam-still process error:" << captureProcess->errorString();
+                ui->snapShotButton->setEnabled(true);
+                ui->snapShotButton->setText("사진 촬영");
+                QMessageBox::warning(this, "촬영 실패", "카메라 프로세스 오류가 발생했습니다.");
+                QFile::remove(tempFile);
+                captureProcess->deleteLater();
+                
+                // 에러 발생해도 프리뷰 재시작
+                QTimer::singleShot(1000, this, &MainWindow::restartPreview);
+            });
+    
+    captureProcess->start("rpicam-still", args);
+}
+
+void MainWindow::restartPreview()
+{
+    // 카메라가 실행 중 상태인 경우에만 프리뷰 재시작
+    if (isCameraRunning) {
+        qDebug() << "Restarting rpicam-hello preview after capture";
+        startGStreamerCamera();
+    }
+}
+
+void MainWindow::updateCameraPreview()
+{
+    // 이 함수는 더 이상 사용되지 않음 (rpicam-hello 사용)
 }

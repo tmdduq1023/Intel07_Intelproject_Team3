@@ -14,6 +14,10 @@
 #include <QtMultimedia/QCameraImageCapture>
 #include <QtMultimediaWidgets/QCameraViewfinder>
 #include <QtMultimediaWidgets/QGraphicsVideoItem>
+#include <QTimer>
+#include <QProcess>
+#include <QLabel>
+#include <QWidget>
 #include "analysisresultdialog.h"
 #include "nameinputdialog.h"
 #include "databasemanager.h"
@@ -41,6 +45,11 @@ private slots:
     void showNameInputDialog();
     void openNameInputDialog(); // 새 함수 추가
     void initializeDatabase();
+    void updateCameraPreview(); // rpicam 프리뷰 업데이트
+    void startGStreamerCamera(); // GStreamer 카메라 시작
+    void stopGStreamerCamera();  // GStreamer 카메라 중지
+    void captureWithRpicam();    // rpicam-still로 직접 촬영
+    void restartPreview();       // 프리뷰 재시작
 
 private:
     Ui::MainWindow *ui;
@@ -64,6 +73,15 @@ private:
     bool isCameraRunning;
     QString currentUserName;
     bool isNameEntered;
+    
+    // rpicam 기반 라이브 피드
+    QTimer* previewTimer;
+    QLabel* cameraPreviewLabel;
+    bool useRpiCam;
+    
+    // GStreamer 비디오 스트림
+    QProcess* gstreamerProcess;
+    QWidget* videoWidget;
     
     void setupCamera();
     void startCamera();
