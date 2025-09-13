@@ -28,6 +28,8 @@
 #include <QApplication>
 #include <QDesktopWidget>
 #include <QScreen>
+#include <QPainter>
+#include <QPaintEvent>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -39,6 +41,8 @@ MainWindow::MainWindow(QWidget *parent)
     , previewTimer(nullptr)
     , cameraPreviewLabel(nullptr)
     , useRpiCam(true)  // rpicam 모드 기본 활성화
+    , overlayWidget(nullptr)
+    , showFaceGuide(true)
     , gstreamerProcess(nullptr)
     , videoWidget(nullptr)
 {
@@ -112,13 +116,13 @@ void MainWindow::setupWindowSizing()
     // 전체화면으로 창 크기 설정
     int windowWidth = screenGeometry.width();
     int windowHeight = screenGeometry.height();
-    
+
     // 최소 크기 설정
     setMinimumSize(600, 500);
-    
+
     // 창 크기 설정 (전체화면)
     resize(windowWidth, windowHeight);
-    
+
     // 창을 화면 왼쪽 상단에 위치
     move(screenGeometry.x(), screenGeometry.y());
     
@@ -958,9 +962,9 @@ void MainWindow::switchToCameraView()
     setCentralWidget(newCentralWidget);
     
     if (useRpiCam) {
-        // rpicam 모드: 간단한 안내 라벨 사용
+        // rpicam 모드: 전체화면 카메라 안내 라벨 사용
         cameraPreviewLabel = new QLabel(newCentralWidget);
-        cameraPreviewLabel->setText("카메라 프리뷰는 별도 창에서 실행됩니다.\n\n'카메라 시작' 버튼을 클릭하세요.");
+        cameraPreviewLabel->setText("카메라가 버튼 영역을 제외한\n전체 화면을 차지합니다.\n\n'카메라 시작' 버튼을 클릭하여\n전체화면 카메라 모드를 활성화하세요.\n\n카메라 화면이 이 영역 위에\n오버레이로 표시됩니다.");
         cameraPreviewLabel->setAlignment(Qt::AlignCenter);
         cameraPreviewLabel->setStyleSheet(
             "QLabel {"
@@ -968,14 +972,18 @@ void MainWindow::switchToCameraView()
             "    border: 2px solid #3498db;"
             "    border-radius: 8px;"
             "    padding: 20px;"
-            "    font-size: 16px;"
+            "    font-size: 14px;"
             "    color: #2c3e50;"
+            "    line-height: 1.5;"
             "}"
         );
         cameraPreviewLabel->setMinimumSize(640, 480);
-        
+
         ui->camViewer = nullptr; // QGraphicsView 사용 안함
         videoWidget = nullptr;   // GStreamer 위젯 사용 안함
+
+        // rpicam 모드용 오버레이 설정
+        setupRpicamOverlay();
     } else {
         // 기존 Qt multimedia 모드: QGraphicsView 사용
         QGraphicsView *camViewer = new QGraphicsView(newCentralWidget);
@@ -1240,10 +1248,13 @@ void MainWindow::updateCameraViewSize()
 void MainWindow::resizeEvent(QResizeEvent *event)
 {
     QMainWindow::resizeEvent(event);
-    
+
     // 윈도우 크기 변경 시 오버레이 위치와 크기 자동 조정
-    if (faceGuideCircle && guideTextItem && scene && ui->camViewer) {
-        // 약간의 지연을 두고 업데이트 (레이아웃이 완료된 후)
+    if (useRpiCam && overlayWidget) {
+        // rpicam 모드: 오버레이 업데이트
+        QTimer::singleShot(10, this, &MainWindow::updateRpicamOverlay);
+    } else if (faceGuideCircle && guideTextItem && scene && ui->camViewer) {
+        // 기존 Qt multimedia 모드: 오버레이 업데이트
         QTimer::singleShot(10, this, &MainWindow::updateOverlayPosition);
     }
 }
@@ -1278,37 +1289,64 @@ void MainWindow::startGStreamerCamera()
     
     gstreamerProcess = new QProcess(this);
     
-    // 가장 간단한 방법: rpicam-hello를 별도 창으로 실행
+    // 화면 크기 정보 가져오기
+    QScreen *screen = QApplication::primaryScreen();
+    QRect screenGeometry = screen->availableGeometry();
+    int cameraWidth = screenGeometry.width();
+
+    // 초록색 영역과 동일한 크기로 카메라 화면 설정
+    // 버튼 영역 높이만 정확히 계산하고 나머지는 모두 카메라 영역으로 사용
+    int buttonHeight = 70;        // 버튼 최대 높이
+    int mainLayoutMargins = 15 * 2; // 메인 레이아웃 상하 여백 (30)
+    int spacingBetween = 15;      // 라벨과 버튼 사이 간격
+    int buttonAreaHeight = buttonHeight + spacingBetween; // 85픽셀
+
+    // 카메라 높이 = 전체 화면 높이 - 레이아웃 여백 - 버튼 영역
+    int cameraHeight = screenGeometry.height() - mainLayoutMargins - buttonAreaHeight;
+
+    // rpicam-hello를 성능 최적화된 설정으로 실행
     QStringList args;
-    args << "-t" << "0"          // 무한 실행
-         << "--width" << "640" 
-         << "--height" << "480";
+    args << "-t" << "0"                               // 무한 실행 (timeout 0과 동일)
+         << "--width" << "640"                        // 고정 해상도 (성능 최적화)
+         << "--height" << "480"                       // 4:3 비율
+         << "--preview" << QString("0,0,%1,%2").arg(cameraWidth).arg(cameraHeight) // 디스플레이 크기
+         << "--framerate" << "15"                     // 15fps로 낮춤 (끊김 방지)
+         << "--denoise" << "cdn_off"                  // 노이즈 제거 끄기
+         << "--awb" << "auto"                         // 자동 화이트밸런스 (간단)
+         << "--metering" << "centre";                 // 중앙 측광 (처리 간단)
     
-    qDebug() << "Starting simple rpicam-hello with args:" << args.join(" ");
+    qDebug() << "Starting rpicam-hello with optimized settings, args:" << args.join(" ");
+    qDebug() << "Screen size:" << screenGeometry.width() << "x" << screenGeometry.height();
+    qDebug() << "Layout margins:" << mainLayoutMargins;
+    qDebug() << "Button area height:" << buttonAreaHeight;
+    qDebug() << "Camera resolution: 640x480, Display size:" << cameraWidth << "x" << cameraHeight;
+    qDebug() << "Performance settings: 15fps, denoise off, simple processing";
     gstreamerProcess->start("rpicam-hello", args);
-    
+
     if (!gstreamerProcess->waitForStarted(3000)) {
         qDebug() << "Failed to start rpicam-hello:" << gstreamerProcess->errorString();
         ui->statusbar->showMessage("카메라 시작 실패", 3000);
         return;
     }
+
+    qDebug() << "rpicam-hello started successfully with performance optimized settings";
+    ui->statusbar->showMessage("카메라 프리뷰가 성능 최적화(15fps)로 실행됨", 2000);
     
-    qDebug() << "rpicam-hello started successfully";
-    ui->statusbar->showMessage("카메라 프리뷰가 별도 창에서 실행됨", 2000);
-    
-    // 안내 라벨 업데이트
+    // 안내 라벨 업데이트 (카메라 실행 중에는 투명하게)
     if (cameraPreviewLabel) {
-        cameraPreviewLabel->setText("✓ 카메라가 별도 창에서 실행 중입니다.\n\n사진을 촬영하려면 '사진 촬영' 버튼을 클릭하세요.");
+        cameraPreviewLabel->setText(""); // 텍스트 제거
         cameraPreviewLabel->setStyleSheet(
             "QLabel {"
-            "    background-color: #d4edda;"
-            "    border: 2px solid #28a745;"
-            "    border-radius: 8px;"
-            "    padding: 20px;"
-            "    font-size: 16px;"
-            "    color: #155724;"
+            "    background: transparent;" // 투명 배경
+            "    border: none;"
             "}"
         );
+    }
+
+    // 얼굴 가이드 오버레이 표시
+    if (overlayWidget) {
+        overlayWidget->show();
+        overlayWidget->raise();
     }
     
     // 프로세스 종료 시그널 연결
@@ -1342,6 +1380,27 @@ void MainWindow::stopGStreamerCamera()
         
         qDebug() << "Camera process stopped";
         ui->statusbar->showMessage("비디오 스트림 중지됨", 2000);
+
+        // 카메라 중지 시 원래 안내 라벨 복원
+        if (cameraPreviewLabel) {
+            cameraPreviewLabel->setText("화면이 분할됩니다:\n\n왼쪽 = 카메라 화면\n오른쪽 = 제어 패널 (현재 화면)\n\n'카메라 시작' 버튼을 클릭하여\n분할 화면 모드를 활성화하세요.");
+            cameraPreviewLabel->setStyleSheet(
+                "QLabel {"
+                "    background-color: #f8f9fa;"
+                "    border: 2px solid #3498db;"
+                "    border-radius: 8px;"
+                "    padding: 20px;"
+                "    font-size: 14px;"
+                "    color: #2c3e50;"
+                "    line-height: 1.5;"
+                "}"
+            );
+        }
+
+        // 얼굴 가이드 오버레이 숨기기
+        if (overlayWidget) {
+            overlayWidget->hide();
+        }
     }
 }
 
@@ -1442,4 +1501,86 @@ void MainWindow::restartPreview()
 void MainWindow::updateCameraPreview()
 {
     // 이 함수는 더 이상 사용되지 않음 (rpicam-hello 사용)
+}
+
+// 커스텀 오버레이 위젯 클래스
+class FaceGuideOverlay : public QWidget
+{
+public:
+    explicit FaceGuideOverlay(QWidget *parent = nullptr) : QWidget(parent)
+    {
+        setAttribute(Qt::WA_TransparentForMouseEvents);
+        setStyleSheet("background: transparent;");
+    }
+
+protected:
+    void paintEvent(QPaintEvent *event) override
+    {
+        Q_UNUSED(event);
+
+        QPainter painter(this);
+        painter.setRenderHint(QPainter::Antialiasing);
+
+        // 위젯 크기
+        int width = this->width();
+        int height = this->height();
+
+        // 얼굴 가이드 원 그리기
+        int circleSize = qMin(width, height) * 0.6; // 60% 크기
+        int centerX = width / 2;
+        int centerY = height / 2 - 20; // 약간 위쪽
+
+        // 원 그리기
+        QPen circlePen(QColor(0, 255, 0, 200), 4); // 초록색, 4픽셀 두께
+        circlePen.setStyle(Qt::DashLine);
+        painter.setPen(circlePen);
+        painter.setBrush(Qt::NoBrush);
+
+        QRect circleRect(centerX - circleSize/2, centerY - circleSize/2, circleSize, circleSize);
+        painter.drawEllipse(circleRect);
+
+        // 안내 텍스트 그리기
+        QFont font("Arial", 16, QFont::Bold);
+        painter.setFont(font);
+        painter.setPen(QColor(0, 255, 0)); // 초록색
+
+        QString text = "원에 얼굴을 맞춰주세요";
+        QFontMetrics fm(font);
+        QRect textRect = fm.boundingRect(text);
+
+        int textX = centerX - textRect.width() / 2;
+        int textY = centerY + circleSize/2 + 30;
+
+        painter.drawText(textX, textY, text);
+    }
+};
+
+void MainWindow::setupRpicamOverlay()
+{
+    if (!cameraPreviewLabel) return;
+
+    // 기존 오버레이가 있으면 삭제
+    if (overlayWidget) {
+        overlayWidget->deleteLater();
+        overlayWidget = nullptr;
+    }
+
+    // 커스텀 오버레이 위젯 생성 (cameraPreviewLabel의 자식으로)
+    overlayWidget = new FaceGuideOverlay(cameraPreviewLabel);
+
+    // 오버레이 위젯의 크기를 라벨과 동일하게 설정
+    overlayWidget->setGeometry(0, 0, cameraPreviewLabel->width(), cameraPreviewLabel->height());
+
+    // 오버레이 표시
+    overlayWidget->show();
+    overlayWidget->raise(); // 최상위로 올리기
+}
+
+void MainWindow::updateRpicamOverlay()
+{
+    if (!overlayWidget || !cameraPreviewLabel) return;
+
+    // 오버레이 위젯의 크기를 라벨과 동일하게 업데이트
+    overlayWidget->setGeometry(0, 0, cameraPreviewLabel->width(), cameraPreviewLabel->height());
+    overlayWidget->update(); // 다시 그리기
 }

@@ -78,6 +78,10 @@ private:
     QTimer* previewTimer;
     QLabel* cameraPreviewLabel;
     bool useRpiCam;
+
+    // rpicam 모드용 오버레이
+    QWidget* overlayWidget;
+    bool showFaceGuide;
     
     // GStreamer 비디오 스트림
     QProcess* gstreamerProcess;
@@ -95,6 +99,8 @@ private:
     void updateOverlayPosition();
     void updateCameraViewSize();
     void setupWindowSizing();
+    void setupRpicamOverlay();
+    void updateRpicamOverlay();
 
 protected:
     void resizeEvent(QResizeEvent *event) override;

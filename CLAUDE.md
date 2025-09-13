@@ -60,6 +60,10 @@ make
 # Debug build
 qmake CONFIG+=debug camera_Qt.pro
 make
+
+# Test build (alternative project file)
+qmake test_direct.pro
+make
 ```
 
 ### Docker Deployment
@@ -71,9 +75,23 @@ docker build -t skin-analyzer .
 docker run --gpus all skin-analyzer
 ```
 
+### STM32 Hardware Development
+```bash
+# STM32 firmware is located in HW/servostepmotor/
+# Requires STM32CubeIDE or similar ARM development environment
+# Key files:
+# - Core/Src/main.c: Main application logic
+# - Core/Src/freertos.c: FreeRTOS task management
+# - Core/Inc/: Header files including FreeRTOSConfig.h
+
+# Hardware communication uses UART protocol
+# Receives "@"-delimited strings with 14 numerical values from Raspberry Pi
+# Controls servo motors and stepper motors for dispensing mechanism
+```
+
 ## Architecture Overview
 
-The system implements a multi-tier distributed architecture with four main components:
+The system implements a multi-tier distributed architecture with five main components:
 
 ### 1. Qt GUI Client (`Qt/camera_Qt/`)
 - **Framework**: C++17 with Qt5/Qt6 (core, gui, widgets, multimedia, network, sql)
@@ -104,6 +122,11 @@ The system implements a multi-tier distributed architecture with four main compo
 - **Features**: Multi-region skin analysis (forehead, left/right cheek, chin, lip)
 - **Metrics**: Moisture, elasticity, pigmentation, pore analysis (14 total values)
 - **Training**: Multiple model variants (`v2`, `v3`, `v4`) with separate models for different features
+
+### 5. Hardware Components (`HW/`)
+- **STM32 Firmware**: `HW/servostepmotor/` - STM32F4 firmware for servo and stepper motor control
+- **Raspberry Pi Code**: `HW/raspi/` - Raspberry Pi specific hardware interface code
+- **STM32 Source**: `HW/stm32_src/` - Additional STM32 development resources
 
 ## Data Flow Architecture
 
@@ -204,6 +227,12 @@ cd Qt/camera_Qt
 
 # Verify camera access
 v4l2-ctl --list-devices  # Linux camera detection
+
+# Test camera application with direct access
+cd Qt/camera_Qt
+qmake test_direct.pro
+make
+./test_camera_direct  # Alternative test executable
 ```
 
 ### Network Troubleshooting
@@ -220,7 +249,7 @@ v4l2-ctl --list-devices  # Linux camera detection
 - **AI Inference**: Real inference uses `infer_skin_server.py` with subprocess.Popen for parallel processing
 - **Error Handling**: All Flask endpoints return proper JSON error responses with HTTP status codes
 - **Timeout Configuration**: HTTP requests use 30-second timeout for robustness
-- **Critical Fix**: In `node.py:line 50-56`, the subprocess call has a bug - the file path `infer_skin_sever.py` should be `infer_skin_server.py` (typo in "sever")
+- **Critical Bug**: In `node.py:line 53`, the subprocess call has a typo - the file path `infer_skin_sever.py` should be `infer_skin_server.py` (typo in "sever"). This will cause the AI inference to fail silently.
 
 ### UART Communication Protocol
 - **Data Format**: 14 numerical values joined by "@" delimiter in specific order:
