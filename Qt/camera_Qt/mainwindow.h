@@ -50,6 +50,9 @@ private slots:
     void stopGStreamerCamera();  // GStreamer 카메라 중지
     void captureWithRpicam();    // rpicam-still로 직접 촬영
     void restartPreview();       // 프리뷰 재시작
+    void createCameraOverlay();  // 카메라 오버레이 생성
+    void showCameraOverlay();    // 카메라 오버레이 표시
+    void hideCameraOverlay();    // 카메라 오버레이 숨김
 
 private:
     Ui::MainWindow *ui;
@@ -82,6 +85,9 @@ private:
     // GStreamer 비디오 스트림
     QProcess* gstreamerProcess;
     QWidget* videoWidget;
+
+    // 카메라 오버레이 윈도우
+    QWidget* overlayWidget;
     
     void setupCamera();
     void startCamera();
