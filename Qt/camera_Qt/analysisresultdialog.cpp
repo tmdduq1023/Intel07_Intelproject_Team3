@@ -129,7 +129,7 @@ void AnalysisResultDialog::setupUI()
     
     connect(closeButton, &QPushButton::clicked, [this]() {
         this->accept();
-        // 항상 이름 입력 창으로 이동
+        // 분석 결과 다이얼로그 닫기 후 이름 입력으로 이동
         showNameInputDialog();
     });
     mainLayout->addWidget(closeButton);
@@ -853,28 +853,8 @@ void AnalysisResultDialog::showRecommendationsDialog(const QJsonObject &data)
 
 void AnalysisResultDialog::showNameInputDialog()
 {
-    // QApplication을 통해 모든 위젯을 검색해서 MainWindow 찾기
-    QWidgetList widgets = QApplication::allWidgets();
-    QWidget *mainWindow = nullptr;
-    
-    for (QWidget *widget : widgets) {
-        if (widget->metaObject()->className() == QString("MainWindow")) {
-            mainWindow = widget;
-            break;
-        }
-    }
-    
-    if (mainWindow) {
-        // MainWindow의 openNameInputDialog 메서드 호출
-        qDebug() << "MainWindow found, calling openNameInputDialog";
-        QMetaObject::invokeMethod(mainWindow, "openNameInputDialog");
-    } else {
-        // MainWindow를 찾지 못하면 직접 다이얼로그 생성
-        qDebug() << "MainWindow not found, creating dialog directly";
-        NameInputDialog *nameDialog = new NameInputDialog(nullptr);
-        nameDialog->exec();
-        delete nameDialog;
-    }
+    // MainWindow에서 다이얼로그 종료 후 이름 입력 화면으로 돌아가는 처리를 담당
+    qDebug() << "Dialog closed, MainWindow will handle returning to initial view";
 }
 
 QChartView* AnalysisResultDialog::createUnifiedComparisonChart(const QJsonObject &currentData, const QJsonObject &previousData)

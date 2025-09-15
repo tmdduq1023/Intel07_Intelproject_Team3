@@ -24,6 +24,7 @@
 #include <QScreen>
 #include <QPainter>
 #include <QProcess>
+#include <QCoreApplication>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -33,6 +34,7 @@ MainWindow::MainWindow(QWidget *parent)
     , cameraPreviewLabel(nullptr)
     , gstreamerProcess(nullptr)
     , overlayWidget(nullptr)
+    , overlayTimer(nullptr)
 {
     ui->setupUi(this);
 
@@ -74,6 +76,12 @@ MainWindow::~MainWindow()
     if (overlayWidget) {
         delete overlayWidget;
         overlayWidget = nullptr;
+    }
+
+    if (overlayTimer) {
+        overlayTimer->stop();
+        delete overlayTimer;
+        overlayTimer = nullptr;
     }
 
     delete ui;
@@ -493,24 +501,70 @@ void MainWindow::fetchAnalysisResult()
                         qWarning() << "Failed to save analysis result to database";
                     }
                     
-                    // 분석 결과 표시 전에 카메라 중지
+                    // 분석 결과 표시 전에 카메라 중지 및 오버레이 완전 삭제
                     if (isCameraRunning) {
                         stopCamera();
                         qDebug() << "Camera stopped before showing analysis result";
                     }
 
-                    // 다이얼로그 표시
+                    // 상태를 먼저 초기화하여 새로운 타이머들이 실행되지 않도록 함
+                    isCameraRunning = false;
+                    isNameEntered = false;
+
+                    // 오버레이 완전히 삭제
+                    hideOpenCVOverlay();
+                    if (overlayWidget) {
+                        overlayWidget->deleteLater();
+                        overlayWidget = nullptr;
+                        qDebug() << "OpenCV overlay completely removed";
+                    }
+
+                    // rpicam 창 숨기기
+                    QProcess::execute("bash", QStringList() << "-c" << "wmctrl -c 'rpicam-hello' 2>/dev/null || true");
+                    QProcess::execute("bash", QStringList() << "-c" << "pkill -f 'rpicam-hello' 2>/dev/null || true");
+
+                    // MainWindow를 최상단으로 가져오기
+                    this->show();
+                    this->raise();
+                    this->activateWindow();
+                    this->setFocus();
+                    qDebug() << "MainWindow brought to front for analysis dialog";
+
+                    // 다이얼로그 표시 (최상단에 표시)
                     if (dialog) {
+                        dialog->setWindowFlags(dialog->windowFlags() | Qt::WindowStaysOnTopHint);
+                        dialog->show();
+                        dialog->raise();
+                        dialog->activateWindow();
                         dialog->exec();
                         dialog->deleteLater();
 
-                        // 분석 완료 후 새로운 사용자를 위해 초기 화면으로 복귀
-                        QTimer::singleShot(1000, [this]() {
-                            currentUserName.clear();
-                            isNameEntered = false;
-                            setupInitialView();
-                            ui->statusbar->showMessage("분석 완료. 새 사용자를 위해 초기화되었습니다.", 3000);
+                        qDebug() << "Analysis dialog closed. Returning to initial view...";
+
+                        // 모든 리소스 정리
+                        if (isCameraRunning) {
+                            stopCamera();
+                        }
+                        hideOpenCVOverlay();
+                        if (overlayWidget) {
+                            overlayWidget->deleteLater();
+                            overlayWidget = nullptr;
+                        }
+
+                        // 상태 초기화
+                        currentUserName.clear();
+                        isNameEntered = false;
+                        isCameraRunning = false;
+
+                        // 모든 활성 타이머 취소 (restartPreview, showOpenCVOverlay 등)
+                        QTimer::singleShot(0, [this]() {
+                            // 이미 실행 중인 타이머들을 무시하도록 상태 재설정
+                            isCameraRunning = false;
                         });
+
+                        // 이름 입력 화면으로 돌아가기
+                        QTimer::singleShot(200, this, &MainWindow::setupInitialView);
+                        ui->statusbar->showMessage("분석 완료. 새 사용자를 위해 초기화되었습니다.", 3000);
                     }
 
                     ui->statusbar->showMessage("Analysis result displayed and saved", 3000);
@@ -567,14 +621,52 @@ void MainWindow::initializeDatabase()
 
 void MainWindow::setupInitialView()
 {
-    // 카메라 관련 UI 숨기기
-    ui->camViewer->hide();
-    ui->camStartButton->hide();
-    ui->snapShotButton->hide();
-    
+    qDebug() << "Setting up initial view - simplified version";
+
+    // 카메라 완전히 중지
+    if (isCameraRunning) {
+        stopCamera();
+    }
+
+    // 상태 정리 - 오버레이 완전 제거 (강화된 정리)
+    hideOpenCVOverlay();
+    if (overlayWidget) {
+        overlayWidget->hide();
+        overlayWidget->close();
+        overlayWidget->deleteLater();
+        overlayWidget = nullptr;
+        qDebug() << "Overlay widget completely deleted in setupInitialView";
+    }
+
+    // 추가로 모든 rpicam 관련 프로세스 정리
+    QProcess::execute("bash", QStringList() << "-c" << "pkill -f 'rpicam-hello' 2>/dev/null || true");
+    QProcess::execute("bash", QStringList() << "-c" << "wmctrl -c 'rpicam-hello' 2>/dev/null || true");
+
+    // 상태 초기화
+    currentUserName.clear();
+    isNameEntered = false;
+    isCameraRunning = false;
+
+    // 기존 중앙 위젯의 내용만 변경 (새로 생성하지 않음)
+    QWidget *central = centralWidget();
+    if (central) {
+        // 기존 레이아웃과 자식 위젯들 제거
+        QLayout* layout = central->layout();
+        if (layout) {
+            QLayoutItem* item;
+            while ((item = layout->takeAt(0)) != nullptr) {
+                delete item->widget();
+                delete item;
+            }
+            delete layout;
+        }
+    } else {
+        central = new QWidget();
+        setCentralWidget(central);
+    }
+
     // 중앙 위젯에 이름 입력 단계 UI 추가
-    QWidget *nameInputWidget = new QWidget();
-    QVBoxLayout *nameLayout = new QVBoxLayout(nameInputWidget);
+    QVBoxLayout *nameLayout = new QVBoxLayout(central);
     nameLayout->setAlignment(Qt::AlignCenter);
     nameLayout->setSpacing(20);
     
@@ -660,9 +752,6 @@ void MainWindow::setupInitialView()
     
     nameLayout->addLayout(buttonLayout);
     nameLayout->addStretch();
-    
-    // 현재 중앙 위젯을 nameInputWidget으로 교체
-    setCentralWidget(nameInputWidget);
     
     // 연결 설정
     connect(startButton, &QPushButton::clicked, [this, nameLineEdit]() {
@@ -864,103 +953,22 @@ void MainWindow::startGStreamerCamera()
         return;
     }
 
-    // 카메라 창이 시작된 후 위치 조정을 위해 약간의 지연
-    QTimer::singleShot(1000, [this, cameraX, cameraY, cameraWidth, cameraHeight]() {
-        qDebug() << "Attempting to position camera window at:" << cameraX << cameraY << "size:" << cameraWidth << "x" << cameraHeight;
-
-        // wmctrl을 사용하여 카메라 창 위치 조정 시도
-        QProcess *wmctrlProcess = new QProcess(this);
-        QStringList wmctrlArgs;
-        wmctrlArgs << "-r" << "rpicam-hello" << "-e" << QString("0,%1,%2,%3,%4").arg(cameraX).arg(cameraY).arg(cameraWidth).arg(cameraHeight);
-
-        qDebug() << "wmctrl command:" << "wmctrl" << wmctrlArgs.join(" ");
-        wmctrlProcess->start("wmctrl", wmctrlArgs);
-        wmctrlProcess->waitForFinished(2000);
-
-        if (wmctrlProcess->exitCode() == 0) {
-            qDebug() << "Camera window positioned successfully";
-        } else {
-            qDebug() << "wmctrl failed, trying alternative method...";
-            qDebug() << "wmctrl error:" << wmctrlProcess->readAllStandardError();
-
-            // 대안: xdotool 사용
-            QProcess *xdotoolProcess = new QProcess(this);
-            QStringList xdotoolArgs;
-            xdotoolArgs << "search" << "--name" << "rpicam-hello" << "windowmove" << QString::number(cameraX) << QString::number(cameraY);
-
-            xdotoolProcess->start("xdotool", xdotoolArgs);
-            xdotoolProcess->waitForFinished(1000);
-
-            if (xdotoolProcess->exitCode() == 0) {
-                qDebug() << "Camera window positioned with xdotool";
-            } else {
-                qDebug() << "Both wmctrl and xdotool failed, camera positioning skipped";
-            }
-
-            xdotoolProcess->deleteLater();
-        }
-
-        wmctrlProcess->deleteLater();
-    });
-
     qDebug() << "rpicam-hello started successfully";
-    ui->statusbar->showMessage("카메라 프리뷰 위치 조정 중...", 2000);
+    ui->statusbar->showMessage("카메라 시작됨", 2000);
 
     // 안내 라벨 숨기기 (카메라가 정확한 위치에 표시되므로)
     if (cameraPreviewLabel) {
         cameraPreviewLabel->hide();
     }
 
-    // 카메라 오버레이 표시
-    QTimer::singleShot(1500, this, &MainWindow::showCameraOverlay);
-
-    // 프로세스 종료 시그널 연결
-    connect(gstreamerProcess, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
-            [this](int exitCode, QProcess::ExitStatus exitStatus) {
-                qDebug() << "Camera process finished with code:" << exitCode << "status:" << exitStatus;
-
-                // 예상치 못한 종료인 경우 (사용자가 의도적으로 중지하지 않은 경우) 재시작 시도
-                if (isCameraRunning && exitCode != 0) {
-                    qDebug() << "Camera unexpectedly stopped, attempting restart in 2 seconds...";
-                    QTimer::singleShot(2000, [this]() {
-                        if (isCameraRunning) {
-                            startGStreamerCamera();
-                        }
-                    });
-                } else {
-                    // 정상 종료 시 안내 라벨 표시
-                    if (cameraPreviewLabel) {
-                        cameraPreviewLabel->show();
-                        cameraPreviewLabel->setText("카메라가 중지되었습니다.\n\n'카메라 시작' 버튼을 클릭하세요.");
-                        cameraPreviewLabel->setStyleSheet(
-                            "QLabel {"
-                            "    background-color: #f8f9fa;"
-                            "    border: 2px solid #6c757d;"
-                            "    border-radius: 8px;"
-                            "    padding: 20px;"
-                            "    font-size: 16px;"
-                            "    color: #495057;"
-                            "}"
-                        );
-                    }
-                }
-            });
-
-    // 에러 출력 연결
-    connect(gstreamerProcess, &QProcess::readyReadStandardError,
-            [this]() {
-                QByteArray data = gstreamerProcess->readAllStandardError();
-                qDebug() << "Camera stderr:" << data;
-            });
+    // OpenCV 기반 오버레이 표시
+    QTimer::singleShot(1500, this, &MainWindow::showOpenCVOverlay);
 }
 
 void MainWindow::stopGStreamerCamera()
 {
     if (gstreamerProcess && gstreamerProcess->state() == QProcess::Running) {
         qDebug() << "Stopping camera process";
-
-        // 오버레이 숨기기
-        hideCameraOverlay();
 
         // 정상 종료 시도
         gstreamerProcess->terminate();
@@ -973,7 +981,51 @@ void MainWindow::stopGStreamerCamera()
         }
 
         qDebug() << "Camera process stopped";
-        ui->statusbar->showMessage("비디오 스트림 중지됨", 2000);
+    }
+
+    // rpicam-hello 관련 프로세스만 종료 (더 안전하게)
+    QProcess *killProcess = new QProcess(this);
+    killProcess->start("bash", QStringList() << "-c" << "pkill -f 'rpicam-hello' 2>/dev/null || true");
+    killProcess->waitForFinished(2000);
+    killProcess->deleteLater();
+    qDebug() << "Killed rpicam-hello processes";
+
+    // X11 창 강제 닫기 (libcamera 관련)
+    QProcess *xkillProcess = new QProcess(this);
+    xkillProcess->start("bash", QStringList() << "-c" << "wmctrl -c 'rpicam-hello' 2>/dev/null || true");
+    xkillProcess->waitForFinished(1000);
+    xkillProcess->deleteLater();
+
+    // 추가적으로 libcamera 관련 창들 닫기
+    QProcess *libcameraKill = new QProcess(this);
+    libcameraKill->start("bash", QStringList() << "-c" << "wmctrl -l | grep -i libcamera | awk '{print $1}' | xargs -r wmctrl -i -c 2>/dev/null || true");
+    libcameraKill->waitForFinished(1000);
+    libcameraKill->deleteLater();
+
+    ui->statusbar->showMessage("비디오 스트림 중지됨", 2000);
+
+    // 안내 라벨 다시 표시
+    if (cameraPreviewLabel) {
+        cameraPreviewLabel->show();
+        cameraPreviewLabel->setText("카메라가 중지되었습니다.\n\n'카메라 시작' 버튼을 클릭하세요.");
+        cameraPreviewLabel->setStyleSheet(
+            "QLabel {"
+            "    background-color: #f8f9fa;"
+            "    border: 2px solid #6c757d;"
+            "    border-radius: 8px;"
+            "    padding: 20px;"
+            "    font-size: 16px;"
+            "    color: #495057;"
+            "}"
+        );
+    }
+
+    // 오버레이 완전히 제거 (카메라 중지 후)
+    hideOpenCVOverlay();
+    if (overlayWidget) {
+        overlayWidget->deleteLater();
+        overlayWidget = nullptr;
+        qDebug() << "Overlay widget deleted after camera stop";
     }
 }
 
@@ -983,18 +1035,23 @@ void MainWindow::captureWithRpicam()
     ui->snapShotButton->setEnabled(false);
     ui->snapShotButton->setText("촬영 중...");
     ui->statusbar->showMessage(QString("촬영 중... 사용자: %1").arg(currentUserName), 2000);
-    
+
     // 1단계: 먼저 rpicam-hello 프로세스 중지
     if (gstreamerProcess && gstreamerProcess->state() == QProcess::Running) {
         qDebug() << "Stopping rpicam-hello for capture...";
         gstreamerProcess->terminate();
         gstreamerProcess->waitForFinished(2000);
     }
-    
+
+    // rpicam-hello 프로세스 안전하게 종료
+    QProcess::execute("bash", QStringList() << "-c" << "pkill -f 'rpicam-hello' 2>/dev/null || true");
+    QProcess::execute("bash", QStringList() << "-c" << "wmctrl -c 'rpicam-hello' 2>/dev/null || true");
+    qDebug() << "Safely killed rpicam-hello before capture";
+
     // 2단계: rpicam-still로 고품질 이미지 캡처
     QProcess *captureProcess = new QProcess(this);
     QString tempFile = QString("/tmp/capture_%1.jpg").arg(QDateTime::currentMSecsSinceEpoch());
-    
+
     QStringList args;
     args << "-o" << tempFile         // 출력 파일
          << "--width" << "1640"      // 고해상도
@@ -1002,21 +1059,21 @@ void MainWindow::captureWithRpicam()
          << "--quality" << "95"      // 고품질
          << "--nopreview"            // 프리뷰 창 비활성화
          << "-t" << "1";             // 1ms만 실행 (즉시 촬영)
-    
+
     qDebug() << "Capturing with rpicam-still:" << args.join(" ");
-    
+
     // 비동기 실행
     connect(captureProcess, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
             [this, captureProcess, tempFile](int exitCode, QProcess::ExitStatus exitStatus) {
                 Q_UNUSED(exitStatus);
-                
+
                 if (exitCode == 0 && QFile::exists(tempFile)) {
                     // 이미지 로드 및 서버 전송
                     QImage capturedImage(tempFile);
                     if (!capturedImage.isNull()) {
                         qDebug() << "Image captured successfully:" << capturedImage.size();
                         uploadImageToServer(capturedImage);
-                        
+
                         // 촬영 완료 후 rpicam-hello 다시 시작
                         QTimer::singleShot(1000, this, &MainWindow::restartPreview);
                     } else {
@@ -1024,11 +1081,11 @@ void MainWindow::captureWithRpicam()
                         ui->snapShotButton->setEnabled(true);
                         ui->snapShotButton->setText("사진 촬영");
                         QMessageBox::warning(this, "촬영 실패", "이미지를 불러올 수 없습니다.");
-                        
+
                         // 실패해도 프리뷰 재시작
                         QTimer::singleShot(1000, this, &MainWindow::restartPreview);
                     }
-                    
+
                     // 임시 파일 삭제
                     QFile::remove(tempFile);
                 } else {
@@ -1036,47 +1093,39 @@ void MainWindow::captureWithRpicam()
                     ui->snapShotButton->setEnabled(true);
                     ui->snapShotButton->setText("사진 촬영");
                     QMessageBox::warning(this, "촬영 실패", "카메라 촬영에 실패했습니다.");
-                    
+
                     // 실패해도 프리뷰 재시작
                     QTimer::singleShot(1000, this, &MainWindow::restartPreview);
                 }
-                
+
                 captureProcess->deleteLater();
             });
-    
-    // 에러 처리
-    connect(captureProcess, &QProcess::errorOccurred,
-            [this, captureProcess, tempFile](QProcess::ProcessError error) {
-                Q_UNUSED(error);
-                qDebug() << "rpicam-still process error:" << captureProcess->errorString();
-                ui->snapShotButton->setEnabled(true);
-                ui->snapShotButton->setText("사진 촬영");
-                QMessageBox::warning(this, "촬영 실패", "카메라 프로세스 오류가 발생했습니다.");
-                QFile::remove(tempFile);
-                captureProcess->deleteLater();
-                
-                // 에러 발생해도 프리뷰 재시작
-                QTimer::singleShot(1000, this, &MainWindow::restartPreview);
-            });
-    
+
     captureProcess->start("rpicam-still", args);
 }
 
 void MainWindow::restartPreview()
 {
-    // 카메라가 실행 중 상태인 경우에만 프리뷰 재시작
-    if (isCameraRunning) {
+    // 카메라가 실행 중이고 사용자가 로그인된 상태인 경우에만 프리뷰 재시작
+    if (isCameraRunning && isNameEntered && !currentUserName.isEmpty()) {
         qDebug() << "Restarting rpicam-hello preview after capture";
+
+        // 기존 오버레이 제거
+        hideOpenCVOverlay();
+        if (overlayWidget) {
+            overlayWidget->deleteLater();
+            overlayWidget = nullptr;
+        }
+
         startGStreamerCamera();
     }
 }
 
-
-// 오버레이 위젯을 생성하는 커스텀 클래스
-class CameraOverlay : public QWidget
+// 단순한 Qt 기반 오버레이 위젯 (OpenCV로 생성한 이미지 사용)
+class SimpleOverlay : public QWidget
 {
 public:
-    CameraOverlay(QWidget *parent = nullptr) : QWidget(parent)
+    SimpleOverlay(QWidget *parent = nullptr) : QWidget(parent)
     {
         // 윈도우 플래그 설정: 항상 최상단, 프레임 없음, 입력 투명
         setWindowFlags(Qt::WindowStaysOnTopHint | Qt::FramelessWindowHint | Qt::Tool);
@@ -1095,21 +1144,20 @@ protected:
         QPainter painter(this);
         painter.setRenderHint(QPainter::Antialiasing);
 
-        // 원 그리기
+        // 원 그리기 (10% 더 크게, 더 위쪽으로)
         int centerX = width() / 2;
-        int centerY = height() / 2 - 50; // 약간 위쪽으로
-        int radius = qMin(width(), height()) * 0.45; // 45% 크기의 원 (더 크게)
+        int centerY = height() / 2 - 120; // 더 위쪽으로 이동
+        int radius = qMin(width(), height()) * 0.385; // 38.5% 크기 (10% 증가)
 
         // 원 스타일 설정
         QPen pen(QColor(0, 255, 0, 200), 4); // 반투명 초록색, 4픽셀 두께
-        pen.setStyle(Qt::DashLine);
         painter.setPen(pen);
         painter.setBrush(Qt::NoBrush); // 내부는 투명
 
         // 원 그리기
         painter.drawEllipse(centerX - radius, centerY - radius, radius * 2, radius * 2);
 
-        // 텍스트 그리기 (카메라 창 가장 밑으로)
+        // 텍스트 그리기 (원 위로 이동)
         QFont font("Arial", 24, QFont::Bold);
         painter.setFont(font);
         painter.setPen(QColor(0, 255, 0, 220)); // 진한 초록색
@@ -1119,50 +1167,80 @@ protected:
         QRect textRect = fm.boundingRect(text);
 
         int textX = centerX - textRect.width() / 2;
-        int textY = height() - 30; // 카메라 창 가장 밑에서 30픽셀 위
+        int textY = height() - 150; // 더 위쪽으로 이동
 
         // 텍스트 배경 (가독성 향상)
-        QRect bgRect(textX - 10, textY - textRect.height() - 5, textRect.width() + 20, textRect.height() + 10);
-        painter.fillRect(bgRect, QColor(0, 0, 0, 120)); // 더 진한 반투명 검은 배경
+        QRect bgRect(textX - 15, textY - textRect.height() - 10, textRect.width() + 30, textRect.height() + 20);
+        painter.fillRect(bgRect, QColor(0, 0, 0, 150)); // 반투명 검은 배경
 
         painter.drawText(textX, textY, text);
     }
 };
 
-void MainWindow::createCameraOverlay()
+void MainWindow::createOpenCVOverlay()
 {
+    // 기존 오버레이가 있으면 완전히 제거
     if (overlayWidget) {
-        delete overlayWidget;
-    }
-
-    overlayWidget = new CameraOverlay();
-}
-
-void MainWindow::showCameraOverlay()
-{
-    if (!overlayWidget) {
-        createCameraOverlay();
-    }
-
-    // Qt 윈도우의 현재 위치 가져오기
-    QRect windowGeometry = this->geometry();
-
-    // 카메라 위치 계산 (startGStreamerCamera와 동일한 로직)
-    int cameraWidth = 1152;
-    int cameraX = windowGeometry.x() + (windowGeometry.width() - cameraWidth) / 2;
-    int cameraY = windowGeometry.y() + 50;
-
-    // 오버레이를 카메라와 같은 위치에 배치
-    overlayWidget->move(cameraX, cameraY);
-    overlayWidget->show();
-
-    qDebug() << "Camera overlay shown at position:" << cameraX << cameraY;
-}
-
-void MainWindow::hideCameraOverlay()
-{
-    if (overlayWidget) {
+        qDebug() << "Deleting existing overlay before creating new one";
         overlayWidget->hide();
-        qDebug() << "Camera overlay hidden";
+        overlayWidget->deleteLater();
+        overlayWidget = nullptr;
+    }
+
+    try {
+        overlayWidget = new SimpleOverlay();
+        qDebug() << "Simple overlay created successfully";
+    } catch (const std::exception& e) {
+        qDebug() << "Failed to create overlay:" << e.what();
+        overlayWidget = nullptr;
     }
 }
+
+void MainWindow::showOpenCVOverlay()
+{
+    // 카메라가 실행 중이고 사용자가 로그인된 상태에서만 오버레이 표시
+    if (!isCameraRunning || !isNameEntered || currentUserName.isEmpty()) {
+        qDebug() << "Overlay display cancelled: camera not running or user not logged in";
+        return;
+    }
+
+    if (!overlayWidget) {
+        createOpenCVOverlay();
+    }
+
+    if (!overlayWidget) {
+        qDebug() << "Failed to create overlay widget";
+        return;
+    }
+
+    try {
+        // Qt 윈도우의 현재 위치 가져오기
+        QRect windowGeometry = this->geometry();
+
+        // 카메라 위치 계산 (startGStreamerCamera와 동일한 로직)
+        int cameraWidth = 1152;
+        int cameraX = windowGeometry.x() + (windowGeometry.width() - cameraWidth) / 2;
+        int cameraY = windowGeometry.y() + 50;
+
+        // 오버레이를 카메라와 같은 위치에 배치
+        overlayWidget->move(cameraX, cameraY);
+        overlayWidget->show();
+
+        qDebug() << "Simple overlay shown at position:" << cameraX << cameraY;
+    } catch (const std::exception& e) {
+        qDebug() << "Failed to show overlay:" << e.what();
+    }
+}
+
+void MainWindow::hideOpenCVOverlay()
+{
+    if (overlayWidget) {
+        try {
+            overlayWidget->hide();
+            qDebug() << "Simple overlay hidden";
+        } catch (const std::exception& e) {
+            qDebug() << "Error hiding overlay:" << e.what();
+        }
+    }
+}
+

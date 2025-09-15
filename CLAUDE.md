@@ -2,6 +2,8 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+현재 환경에서는 qt 코드를 실행하는 것이 불가능. 다른 장치에서 실행 후에 결과를 알려주면 피드백을 제공할 것.
+
 ## Project Overview
 
 This is a skin improvement dispenser project (피부 개선 디스펜서) that uses camera technology to measure skin condition (moisture, elasticity, pigmentation, pore analysis) and dispense appropriate cosmetic products in the right amounts.
@@ -71,6 +73,22 @@ docker build -t skin-analyzer .
 docker run --gpus all skin-analyzer
 ```
 
+### Testing and Verification
+```bash
+# Test server endpoints
+curl -X POST http://localhost:5000/upload -F "image=@test.jpg"
+curl -X GET http://192.168.0.90:5000/get_analysis
+
+# Check running processes
+ps aux | grep python
+
+# Verify camera access (Linux)
+v4l2-ctl --list-devices
+
+# Test UART permissions (Raspberry Pi)
+ls -la /dev/serial0
+```
+
 ## Architecture Overview
 
 The system implements a multi-tier distributed architecture with four main components:
@@ -99,11 +117,19 @@ The system implements a multi-tier distributed architecture with four main compo
 - **Protocol**: Sends 14 metrics as "@"-delimited string to hardware
 
 ### 4. AI Models (`AI/`)
-- **Framework**: PyTorch with ResNet-50 backbone
-- **Core Model**: `PersonalizedSkinModel` with person embeddings for personalized analysis
-- **Features**: Multi-region skin analysis (forehead, left/right cheek, chin, lip)
+- **Framework**: PyTorch with ResNet-50 backbone and RetinaNet for ROI detection
+- **Two-Stage Pipeline**:
+  1. ROI Detection using RetinaNet for facial region identification
+  2. Multi-head classification/regression for skin feature analysis
+- **Core Model**: `RoiMultiHead` with separate heads for each facial region
+- **Features**: Multi-region skin analysis (forehead, left/right cheek, chin, lips)
 - **Metrics**: Moisture, elasticity, pigmentation, pore analysis (14 total values)
-- **Training**: Multiple model variants (`v2`, `v3`, `v4`) with separate models for different features
+- **Training**: Multiple model variants (`v2`, `v3`, `v4`) with different architectures
+
+### 5. Hardware Control (`HW/`)
+- **Raspberry Pi Scripts**: `HW/raspi/` contains camera and communication scripts
+- **Motor Control**: `HW/servostepmotor/` for dispensing mechanism control
+- **STM32 Firmware**: `HW/stm32_src/` for microcontroller integration
 
 ## Data Flow Architecture
 
@@ -220,17 +246,21 @@ v4l2-ctl --list-devices  # Linux camera detection
 - **AI Inference**: Real inference uses `infer_skin_server.py` with subprocess.Popen for parallel processing
 - **Error Handling**: All Flask endpoints return proper JSON error responses with HTTP status codes
 - **Timeout Configuration**: HTTP requests use 30-second timeout for robustness
-- **Critical Fix**: In `node.py:line 50-56`, the subprocess call has a bug - the file path `infer_skin_sever.py` should be `infer_skin_server.py` (typo in "sever")
+- **Critical Bug**: In `node.py:53`, there's a filename typo: `infer_skin_sever.py` should be `infer_skin_server.py` (missing 'r' in "server")
 
 ### UART Communication Protocol
 - **Data Format**: 14 numerical values joined by "@" delimiter in specific order:
   ```
   forehead: moisture, elasticity, pigmentation
   l_check: moisture, elasticity, pigmentation, pore
-  r_check: moisture, elasticity, pigmentation, pore  
+  r_check: moisture, elasticity, pigmentation, pore
   chin: moisture, elasticity
-  lib: elasticity
+  lib: dryness
   ```
+- **Average Processing**: `rasp.py` calculates regional averages before UART transmission:
+  - Moisture: average of forehead, l_check, r_check, chin
+  - Elasticity: average of forehead, l_check, r_check, chin
+  - Pigmentation: average of forehead, l_check, r_check
 - **Hardware Interface**: Uses Python `serial` library with thread-safe operations via `ser_lock`
 - **Error Recovery**: UART operations include proper exception handling and reconnection logic
 
@@ -239,3 +269,21 @@ v4l2-ctl --list-devices  # Linux camera detection
 - **Active Branches**: `QT-Sever_modi`, `Server`, `cameraMergeServer`, `image_receive` (various development streams)
 - **Qt Build Process**: Always run `make clean` before rebuilding to avoid stale object files
 - **Virtual Environment**: Server dependencies are pre-installed in `Server/venv/` (Python 3.10.12)
+- **Environment Note**: Qt code execution is not possible in current environment; test on target device and report results for feedback
+
+## Common Issues and Solutions
+
+### Build Issues
+- **Qt Build Failures**: Run `make clean` before rebuilding to clear stale object files
+- **Missing Dependencies**: Ensure virtual environment is activated: `cd Server && source venv/bin/activate`
+- **Permission Errors**: Check `/dev/serial0` permissions on Raspberry Pi for UART access
+
+### Runtime Issues
+- **Server Connection Failures**: Verify IP address (192.168.0.90) and port (5000) accessibility
+- **Camera Access**: Use `v4l2-ctl --list-devices` to verify camera availability on Linux
+- **AI Model Loading**: Ensure model files exist in expected paths (check `infer_skin_server.py` config)
+
+### Network Debugging
+- **Port Conflicts**: Check if port 5000 is already in use: `netstat -tulpn | grep 5000`
+- **Firewall Issues**: Ensure Flask servers can accept incoming connections
+- **UART Communication**: Test serial device access and baud rate configuration

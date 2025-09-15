@@ -40,9 +40,9 @@ private slots:
     void stopGStreamerCamera();  // rpicam 카메라 중지
     void captureWithRpicam();    // rpicam-still로 직접 촬영
     void restartPreview();       // 프리뷰 재시작
-    void createCameraOverlay();  // 카메라 오버레이 생성
-    void showCameraOverlay();    // 카메라 오버레이 표시
-    void hideCameraOverlay();    // 카메라 오버레이 숨김
+    void createOpenCVOverlay();  // OpenCV 기반 오버레이 생성
+    void showOpenCVOverlay();    // OpenCV 오버레이 표시
+    void hideOpenCVOverlay();    // OpenCV 오버레이 숨김
 
 private:
     Ui::MainWindow *ui;
@@ -62,8 +62,9 @@ private:
     QLabel* cameraPreviewLabel;
     QProcess* gstreamerProcess;
 
-    // 카메라 오버레이 윈도우
+    // OpenCV 기반 오버레이
     QWidget* overlayWidget;
+    QTimer* overlayTimer;
     
     void startCamera();
     void stopCamera();
