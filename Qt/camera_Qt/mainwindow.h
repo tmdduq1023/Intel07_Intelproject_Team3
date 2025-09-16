@@ -13,6 +13,7 @@
 #include <QProcess>
 #include <QLabel>
 #include <QWidget>
+#include <QResizeEvent>
 #include "analysisresultdialog.h"
 #include "nameinputdialog.h"
 #include "databasemanager.h"
@@ -74,6 +75,10 @@ private:
     void setupInitialView();
     void switchToCameraView();
     void setupWindowSizing();
+    void updateCameraLayout(); // 카메라 레이아웃 업데이트
+
+protected:
+    void resizeEvent(QResizeEvent *event) override; // 윈도우 크기 변경 이벤트
 };
 
 #endif // MAINWINDOW_H

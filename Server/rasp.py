@@ -3,7 +3,10 @@ import serial
 import threading
 import requests
 
-ser = serial.Serial("/dev/serial0", baudrate=9600, timeout=1)
+# ser = serial.Serial("/dev/serial0", baudrate=115200, timeout=1)
+ser = serial.Serial(
+    "/dev/ttyAMA3", 115200, bytesize=8, parity="N", stopbits=1, timeout=1
+)
 ser_lock = threading.Lock()
 app = Flask(__name__)
 
@@ -40,25 +43,25 @@ def receive_json():
 
         # uart 데이터 가공
         moisture_average = (
-            payload["forehead"]["moisture"] +
-            payload["l_check"]["moisture"] +
-            payload["r_check"]["moisture"] +
-            payload["chin"]["moisture"]
+            payload["forehead"]["moisture"]
+            + payload["l_check"]["moisture"]
+            + payload["r_check"]["moisture"]
+            + payload["chin"]["moisture"]
         ) / 4
-        
+
         elasticity_average = (
-            payload["forehead"]["elasticity"] +
-            payload["l_check"]["elasticity"] +
-            payload["r_check"]["elasticity"] +
-            payload["chin"]["elasticity"]
+            payload["forehead"]["elasticity"]
+            + payload["l_check"]["elasticity"]
+            + payload["r_check"]["elasticity"]
+            + payload["chin"]["elasticity"]
         ) / 4
-        
+
         pigmentation_average = (
-            payload["forehead"]["pigmentation"] +
-            payload["l_check"]["pigmentation"] +
-            payload["r_check"]["pigmentation"]
+            payload["forehead"]["pigmentation"]
+            + payload["l_check"]["pigmentation"]
+            + payload["r_check"]["pigmentation"]
         ) / 3
-        
+
         pore_average = (payload["l_check"]["pore"] + payload["r_check"]["pore"]) / 2
         lib_dryness = payload["lib"]["dryness"]
 
@@ -89,8 +92,10 @@ def receive_json():
 
         # 추천 문구 생성
         recommendations = []
-        print(f"Flag 값들: mositure={mositure_flag}, elasticity={elasticity_flag}, pigmentation={pigmentation_flag}, pore={pore_flag}, lib_dryness={lib_dryness_flag}")
-        
+        print(
+            f"Flag 값들: mositure={mositure_flag}, elasticity={elasticity_flag}, pigmentation={pigmentation_flag}, pore={pore_flag}, lib_dryness={lib_dryness_flag}"
+        )
+
         if mositure_flag == 1:
             recommendations.append("수분크림 추천")
         if elasticity_flag == 1:

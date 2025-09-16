@@ -279,8 +279,32 @@ void MainWindow::onUploadFinished(QNetworkReply* reply)
 
         if (!jsonResponse.isNull() && jsonResponse.isObject()) {
             QJsonObject obj = jsonResponse.object();
+
+            // ROI detection 실패 처리
             if (obj.contains("message")) {
-                message = obj["message"].toString();
+                QString serverMessage = obj["message"].toString();
+
+                if (serverMessage.startsWith("ROI detection failed")) {
+                    // "ROI detection failed : part1, part2, ..." 형태에서 부위 추출
+                    QStringList parts = serverMessage.split(" : ");
+                    if (parts.size() > 1) {
+                        QString failedParts = parts[1].trimmed();
+                        QString retryMessage = QString("사진을 다시 찍어 주세요 : %1").arg(failedParts);
+
+                        QMessageBox::warning(this, "분석 실패", retryMessage);
+                        qDebug() << "ROI detection failed for parts:" << failedParts;
+
+                        // 카메라를 다시 활성화하여 재촬영 가능하게 함
+                        ui->snapShotButton->setEnabled(true);
+                        ui->snapShotButton->setText("사진 촬영");
+                        ui->statusbar->showMessage("ROI 검출 실패 - 사진을 다시 촬영해주세요", 5000);
+
+                        reply->deleteLater();
+                        return;
+                    }
+                }
+
+                message = serverMessage;
             }
             if (obj.contains("file_id")) {
                 message += QString("\nFile ID: %1").arg(obj["file_id"].toString());
@@ -467,8 +491,8 @@ void MainWindow::fetchAnalysisResult()
             if (jsonDoc.isObject()) {
                 QJsonObject responseObj = jsonDoc.object();
                 qDebug() << "Parsed JSON object:" << responseObj;
-                
-                if (responseObj["status"].toString() == "success" && 
+
+                if (responseObj["status"].toString() == "success" &&
                     responseObj.contains("analysis_data")) {
                     
                     QJsonObject analysisData = responseObj["analysis_data"].toObject();
@@ -825,9 +849,13 @@ void MainWindow::switchToCameraView()
     mainLayout->setSpacing(20);  // 간격을 늘려서 버튼과 카메라 분리
 
     if (cameraPreviewLabel) {
-        // rpicam 모드: 카메라 영역을 위한 고정 크기 설정
+        // rpicam 모드: 카메라 영역을 Qt 윈도우의 50% 너비, 70% 높이로 설정
+        QRect windowGeometry = this->geometry();
+        int cameraWidth = windowGeometry.width() / 2;                    // 너비는 50%
+        int cameraHeight = static_cast<int>(windowGeometry.height() * 0.7); // 높이는 70%
+
         cameraPreviewLabel->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
-        cameraPreviewLabel->setFixedSize(1152, 864); // 카메라와 동일한 크기 (1.8배)
+        cameraPreviewLabel->setFixedSize(cameraWidth, cameraHeight); // 50% 너비, 70% 높이
         cameraPreviewLabel->setAlignment(Qt::AlignCenter);
 
         // 카메라 영역을 중앙에 배치하기 위한 레이아웃
@@ -924,8 +952,8 @@ void MainWindow::startGStreamerCamera()
     qDebug() << "Qt window geometry:" << windowGeometry;
 
     // 카메라 영역 위치 계산 (Qt 윈도우 내부의 카메라 프리뷰 영역)
-    int cameraWidth = 1152;  // 960 * 1.2 = 1152
-    int cameraHeight = 864;  // 720 * 1.2 = 864
+    int cameraWidth = windowGeometry.width() / 2;                        // Qt 윈도우 너비의 50%
+    int cameraHeight = static_cast<int>(windowGeometry.height() * 0.7);  // Qt 윈도우 높이의 70%
     int cameraX = windowGeometry.x() + (windowGeometry.width() - cameraWidth) / 2; // x축 중앙 정렬
     int cameraY = windowGeometry.y() + 50; // 상단 마진 (타이틀바 + 여백)
 
@@ -1124,16 +1152,20 @@ void MainWindow::restartPreview()
 // 단순한 Qt 기반 오버레이 위젯 (OpenCV로 생성한 이미지 사용)
 class SimpleOverlay : public QWidget
 {
+private:
+    int overlayWidth;
+    int overlayHeight;
+
 public:
-    SimpleOverlay(QWidget *parent = nullptr) : QWidget(parent)
+    SimpleOverlay(int width, int height, QWidget *parent = nullptr) : QWidget(parent), overlayWidth(width), overlayHeight(height)
     {
         // 윈도우 플래그 설정: 항상 최상단, 프레임 없음, 입력 투명
         setWindowFlags(Qt::WindowStaysOnTopHint | Qt::FramelessWindowHint | Qt::Tool);
         setAttribute(Qt::WA_TranslucentBackground);  // 배경 투명
         setAttribute(Qt::WA_TransparentForMouseEvents); // 마우스 이벤트 투과
 
-        // 크기 설정
-        resize(1152, 864);
+        // 크기 설정 (동적으로 설정)
+        resize(overlayWidth, overlayHeight);
     }
 
 protected:
@@ -1144,10 +1176,10 @@ protected:
         QPainter painter(this);
         painter.setRenderHint(QPainter::Antialiasing);
 
-        // 원 그리기 (10% 더 크게, 더 위쪽으로)
+        // 원 그리기 (카메라 창 안에 완전히 들어가도록 조정)
         int centerX = width() / 2;
-        int centerY = height() / 2 - 120; // 더 위쪽으로 이동
-        int radius = qMin(width(), height()) * 0.385; // 38.5% 크기 (10% 증가)
+        int centerY = height() / 2 - 100; // 위로 이동
+        int radius = qMin(width(), height()) * 0.40; // 40% 크기로 조정
 
         // 원 스타일 설정
         QPen pen(QColor(0, 255, 0, 200), 4); // 반투명 초록색, 4픽셀 두께
@@ -1157,8 +1189,8 @@ protected:
         // 원 그리기
         painter.drawEllipse(centerX - radius, centerY - radius, radius * 2, radius * 2);
 
-        // 텍스트 그리기 (원 위로 이동)
-        QFont font("Arial", 24, QFont::Bold);
+        // 텍스트 그리기 (새로운 카메라 크기에 맞춰 조정)
+        QFont font("Arial", 20, QFont::Bold); // 폰트 크기를 20으로 조정
         painter.setFont(font);
         painter.setPen(QColor(0, 255, 0, 220)); // 진한 초록색
 
@@ -1167,7 +1199,7 @@ protected:
         QRect textRect = fm.boundingRect(text);
 
         int textX = centerX - textRect.width() / 2;
-        int textY = height() - 150; // 더 위쪽으로 이동
+        int textY = height() - 100; // 원과 함께 아래로 이동하여 겹침 상태 유지
 
         // 텍스트 배경 (가독성 향상)
         QRect bgRect(textX - 15, textY - textRect.height() - 10, textRect.width() + 30, textRect.height() + 20);
@@ -1188,8 +1220,13 @@ void MainWindow::createOpenCVOverlay()
     }
 
     try {
-        overlayWidget = new SimpleOverlay();
-        qDebug() << "Simple overlay created successfully";
+        // Qt 윈도우 크기에 맞춰 오버레이 크기 설정 (50% 너비, 70% 높이)
+        QRect windowGeometry = this->geometry();
+        int cameraWidth = windowGeometry.width() / 2;                        // 너비 50%
+        int cameraHeight = static_cast<int>(windowGeometry.height() * 0.7);  // 높이 70%
+
+        overlayWidget = new SimpleOverlay(cameraWidth, cameraHeight);
+        qDebug() << "Simple overlay created successfully with size:" << cameraWidth << "x" << cameraHeight;
     } catch (const std::exception& e) {
         qDebug() << "Failed to create overlay:" << e.what();
         overlayWidget = nullptr;
@@ -1218,7 +1255,7 @@ void MainWindow::showOpenCVOverlay()
         QRect windowGeometry = this->geometry();
 
         // 카메라 위치 계산 (startGStreamerCamera와 동일한 로직)
-        int cameraWidth = 1152;
+        int cameraWidth = windowGeometry.width() / 2;   // Qt 윈도우 너비의 50%
         int cameraX = windowGeometry.x() + (windowGeometry.width() - cameraWidth) / 2;
         int cameraY = windowGeometry.y() + 50;
 
@@ -1241,6 +1278,37 @@ void MainWindow::hideOpenCVOverlay()
         } catch (const std::exception& e) {
             qDebug() << "Error hiding overlay:" << e.what();
         }
+    }
+}
+
+void MainWindow::resizeEvent(QResizeEvent *event)
+{
+    QMainWindow::resizeEvent(event);
+
+    // 카메라가 실행 중일 때만 레이아웃 업데이트
+    if (isCameraRunning && cameraPreviewLabel) {
+        updateCameraLayout();
+    }
+}
+
+void MainWindow::updateCameraLayout()
+{
+    if (!cameraPreviewLabel) return;
+
+    // Qt 윈도우 크기에 맞춰 카메라 프리뷰 라벨 크기 업데이트 (50% 너비, 70% 높이)
+    QRect windowGeometry = this->geometry();
+    int cameraWidth = windowGeometry.width() / 2;                        // 너비 50%
+    int cameraHeight = static_cast<int>(windowGeometry.height() * 0.7);  // 높이 70%
+
+    cameraPreviewLabel->setFixedSize(cameraWidth, cameraHeight);
+
+    // 카메라가 실행 중이면 실제 카메라 윈도우도 업데이트
+    if (isCameraRunning && gstreamerProcess && gstreamerProcess->state() == QProcess::Running) {
+        // 기존 카메라 프로세스 중지
+        stopGStreamerCamera();
+
+        // 새 크기로 카메라 재시작 (짧은 지연 후)
+        QTimer::singleShot(500, this, &MainWindow::startGStreamerCamera);
     }
 }
 

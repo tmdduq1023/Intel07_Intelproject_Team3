@@ -86,7 +86,7 @@ ps aux | grep python
 v4l2-ctl --list-devices
 
 # Test UART permissions (Raspberry Pi)
-ls -la /dev/serial0
+ls -la /dev/ttyAMA3
 ```
 
 ## Architecture Overview
@@ -113,7 +113,7 @@ The system implements a multi-tier distributed architecture with four main compo
   - `/get_analysis` (Qt client requests latest analysis results)
   - `/test_data` (generates sample test data)
   - `/clear_data` (clears stored analysis data)
-- **Hardware**: UART communication via `/dev/serial0` at 9600 baud
+- **Hardware**: UART communication via `/dev/ttyAMA3` at 115200 baud (configured in current implementation)
 - **Protocol**: Sends 14 metrics as "@"-delimited string to hardware
 
 ### 4. AI Models (`AI/`)
@@ -148,7 +148,7 @@ Qt Client → [HTTP POST /upload] → node.py → [AI Processing] → [HTTP POST
 - **Qt Client**: Connects to image processing server
 - **Image Server**: `node.py` on port 5000, endpoint `/upload`
 - **Hardware Server**: `rasp.py` on 192.168.0.90:5000, endpoint `/receive`
-- **UART**: Serial communication at `/dev/serial0`, 9600 baud rate
+- **UART**: Serial communication at `/dev/ttyAMA3`, 115200 baud rate
 - **Protocol**: 14 numerical values separated by "@" symbols
 
 ## AI Model Architecture
@@ -180,7 +180,7 @@ Qt Client → [HTTP POST /upload] → node.py → [AI Processing] → [HTTP POST
 
 ### Hardware Requirements
 - **GPU**: CUDA 11.8 support for AI training
-- **Serial Port**: `/dev/serial0` for UART communication (Raspberry Pi)
+- **Serial Port**: `/dev/ttyAMA3` for UART communication (Raspberry Pi)
 - **Camera**: Compatible with Qt multimedia framework
 
 ## Configuration Files
@@ -190,7 +190,7 @@ Qt Client → [HTTP POST /upload] → node.py → [AI Processing] → [HTTP POST
 - **Default URLs**: 
   - Image processing server: `http://192.168.0.90:5000/upload`
   - Raspberry Pi server: `http://192.168.0.90:5000/receive`
-- **UART Settings**: 9600 baud rate, `/dev/serial0` device path
+- **UART Settings**: 115200 baud rate, `/dev/ttyAMA3` device path (current implementation)
 
 ### Qt Project Structure
 - **Main Files**: `mainwindow.cpp`, `databasemanager.cpp`, `analysisresultdialog.cpp`, `nameinputdialog.cpp`
@@ -235,7 +235,7 @@ v4l2-ctl --list-devices  # Linux camera detection
 ### Network Troubleshooting
 - **Port Conflicts**: Ensure ports 5000 are available on both servers
 - **Network Connectivity**: Verify Raspberry Pi IP address (192.168.0.90) is accessible
-- **UART Permissions**: Check `/dev/serial0` permissions on Raspberry Pi
+- **UART Permissions**: Check `/dev/ttyAMA3` permissions on Raspberry Pi
 - **Firewall**: Ensure Flask servers can accept connections
 
 ## Important Implementation Details
@@ -247,6 +247,7 @@ v4l2-ctl --list-devices  # Linux camera detection
 - **Error Handling**: All Flask endpoints return proper JSON error responses with HTTP status codes
 - **Timeout Configuration**: HTTP requests use 30-second timeout for robustness
 - **Critical Bug**: In `node.py:53`, there's a filename typo: `infer_skin_sever.py` should be `infer_skin_server.py` (missing 'r' in "server")
+- **Dependencies**: Core server dependencies defined in `Server/requirements.txt`: Flask==2.2.2, pyserial==3.5, requests==2.28.1
 
 ### UART Communication Protocol
 - **Data Format**: 14 numerical values joined by "@" delimiter in specific order:
@@ -276,7 +277,7 @@ v4l2-ctl --list-devices  # Linux camera detection
 ### Build Issues
 - **Qt Build Failures**: Run `make clean` before rebuilding to clear stale object files
 - **Missing Dependencies**: Ensure virtual environment is activated: `cd Server && source venv/bin/activate`
-- **Permission Errors**: Check `/dev/serial0` permissions on Raspberry Pi for UART access
+- **Permission Errors**: Check `/dev/ttyAMA3` permissions on Raspberry Pi for UART access
 
 ### Runtime Issues
 - **Server Connection Failures**: Verify IP address (192.168.0.90) and port (5000) accessibility
@@ -287,3 +288,4 @@ v4l2-ctl --list-devices  # Linux camera detection
 - **Port Conflicts**: Check if port 5000 is already in use: `netstat -tulpn | grep 5000`
 - **Firewall Issues**: Ensure Flask servers can accept incoming connections
 - **UART Communication**: Test serial device access and baud rate configuration
+- qt를 여기서 컴파일 할 수 없음. 테스트 후 결과를 알려줌
