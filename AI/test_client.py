@@ -2,7 +2,7 @@ import requests
 import os
 
 # AI 분석 서버의 주소
-SERVER_URL = "http://192.168.0.40:5001/analyze"
+SERVER_URL = "http://192.168.0.40:5001/upload"
 
 # 전송할 이미지 파일의 경로
 IMAGE_PATH = "test1.jpg"

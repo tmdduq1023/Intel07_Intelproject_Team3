@@ -676,7 +676,7 @@ def main():
     scaler = GradScaler(device="cuda") if torch.cuda.is_available() else None
 
     stopper = EarlyStopping(patience=args.early_patience, min_delta=args.early_min_delta)
-    best_path  = os.path.join(args.out_dir, "best_0910.pth")
+    best_path  = os.path.join(args.out_dir, "best.pth")
     best_epoch = 0
 
     start_time = datetime.now()

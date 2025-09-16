@@ -91,7 +91,8 @@ def detect_rois_with_geti(deployment, image_path):
     print("Geti 모델로 추론 중...")
     prediction = deployment.infer(image_rgb)
 
-    detected_rois = []
+    # Use a dictionary to store only the first (highest confidence) detection for each label
+    best_rois = {}
     img_height, img_width, _ = image_rgb.shape
     image_center_x = img_width / 2
 
@@ -108,10 +109,16 @@ def detect_rois_with_geti(deployment, image_path):
         else:
             final_label = f"facepart::{label_name}"
 
-        detected_rois.append({
-            'box': box,
-            'label_name': final_label
-        })
+        # If this label has not been seen before, add it.
+        # Since Geti returns sorted predictions, the first one is the best one.
+        if final_label not in best_rois:
+            best_rois[final_label] = {
+                'box': box,
+                'label_name': final_label
+            }
+
+    # Convert the dictionary of best ROIs back to a list
+    detected_rois = list(best_rois.values())
     return Image.fromarray(image_rgb), detected_rois
 
 def load_skin_model(model_path):
@@ -154,13 +161,34 @@ def analyze_skin(skin_model, roi_label_space, reg_std, cropped_image, roi_name):
 
 def send_results_to_server(results, server_url):
     try:
+        # Transform the results into the simple format expected by the Raspberry Pi
         payload = {
-            "forehead": results.get("forehead", {}),
-            "l_check": results.get("left_cheek", {}),
-            "r_check": results.get("right_cheek", {}),
-            "chin": results.get("chin", {}),
-            "lib": results.get("lips", {})
+            "forehead": {
+                "moisture": results.get("forehead", {}).get("eq_forehead_moisture", 0),
+                "elasticity": results.get("forehead", {}).get("eq_forehead_elasticity_Q0", 0),
+                "pigmentation": results.get("forehead", {}).get("ann_forehead_pigmentation", 0)
+            },
+            "l_check": {
+                "moisture": results.get("left_cheek", {}).get("eq_l_cheek_moisture", 0),
+                "elasticity": results.get("left_cheek", {}).get("eq_l_cheek_elasticity_Q0", 0),
+                "pigmentation": results.get("left_cheek", {}).get("ann_l_cheek_pigmentation", 0),
+                "pore": results.get("left_cheek", {}).get("eq_l_cheek_pore", 0)
+            },
+            "r_check": {
+                "moisture": results.get("right_cheek", {}).get("eq_r_cheek_moisture", 0),
+                "elasticity": results.get("right_cheek", {}).get("eq_r_cheek_elasticity_Q0", 0),
+                "pigmentation": results.get("right_cheek", {}).get("ann_r_cheek_pigmentation", 0),
+                "pore": results.get("right_cheek", {}).get("eq_r_cheek_pore", 0)
+            },
+            "chin": {
+                "moisture": results.get("chin", {}).get("eq_chin_moisture", 0),
+                "elasticity": results.get("chin", {}).get("eq_chin_elasticity_Q0", 0)
+            },
+            "lib": {
+                "dryness": results.get("lips", {}).get("ann_lip_dryness", 0)
+            }
         }
+
         print("\n--- 서버로 전송 ---")
         print("Payload:", json.dumps(payload, indent=2))
         response = requests.post(server_url, json=payload, timeout=10)
@@ -173,8 +201,12 @@ def send_results_to_server(results, server_url):
 
 def send_detection_failure_to_server(missing_parts, server_url):
     try:
-        error_message = f"ROI detection failed : {', '.join(missing_parts)}"
-        payload = {"error": error_message}
+        # Remove "facepart::" prefix for the payload
+        simple_missing_parts = [part.replace("facepart::", "") for part in missing_parts]
+        
+        # Create the desired dictionary format with the specified key
+        payload = {"ROI detection failed :": ', '.join(simple_missing_parts)}
+
         print("\n--- 탐지 실패 전송 ---")
         print("Payload:", json.dumps(payload, indent=2))
         response = requests.post(server_url, json=payload, timeout=10)
@@ -224,7 +256,7 @@ def process_image_and_get_results(image_path):
     return final_results, None
 
 # Flask API 엔드포인트
-@app.route("/analyze", methods=["POST"])
+@app.route("/upload", methods=["POST"])
 def analyze_image_endpoint():
     """이미지를 받아 처리하고, 결과를 파이로 전송하는 API"""
     if 'image' not in request.files:
