@@ -210,14 +210,57 @@ def clear_analysis_data():
 # -------------------
 
 
-# urat 쓰기, 알고리즘 쓰기
+# uart 쓰기, 알고리즘 쓰기
 def uart_write(data: str):
     if not isinstance(data, str):
         data = str(data)
     with ser_lock:
         ser.write(data.encode("utf-8"))
 
+# uart 읽기 - 포맷: 항목@{Yes, NO}@항목@{Yes, NO}..@END
+def uart_read_continuous():
+    """UART에서 연속적으로 데이터를 읽어서 END까지 수신"""
+    buffer = ""
+    print("UART 수신 대기 중...")
+
+    while True:
+        try:
+            with ser_lock:
+                if ser.in_waiting > 0:
+                    # 바이트 단위로 읽기
+                    data = ser.read(ser.in_waiting).decode('utf-8', errors='ignore')
+                    buffer += data
+
+                    # @ 구분자로 메시지 분리
+                    while '@' in buffer:
+                        message_part, buffer = buffer.split('@', 1)
+
+                        if message_part.strip():  # 빈 문자열이 아닌 경우
+                            print(f"[UART 수신] {message_part.strip()}")
+
+                            # END 메시지 체크
+                            if message_part.strip() == "END":
+                                print("=== UART 메시지 수신 완료 (END) ===")
+                                return  # 함수 종료
+
+        except Exception as e:
+            print(f"UART 읽기 오류: {e}")
+
+        # CPU 사용률 절약을 위한 짧은 대기
+        import time
+        time.sleep(0.01)
+
+# UART 수신을 별도 스레드에서 실행
+def start_uart_reader():
+    """UART 수신을 별도 스레드에서 시작"""
+    uart_thread = threading.Thread(target=uart_read_continuous, daemon=True)
+    uart_thread.start()
+    print("UART 수신 스레드 시작됨")
+
 
 if __name__ == "__main__":
+    # UART 수신 스레드 시작
+    start_uart_reader()
+
     # 모든 인터페이스에서 접근 가능하도록 설정
     app.run(host="0.0.0.0", port=5000, debug=True)

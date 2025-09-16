@@ -315,7 +315,7 @@ void MainWindow::onUploadFinished(QNetworkReply* reply)
         qDebug() << "Server response:" << response;
         
         // 업로드 성공 후 분석 결과 가져오기 (약간의 지연 후)
-        QTimer::singleShot(2000, this, &MainWindow::fetchAnalysisResult);
+        QTimer::singleShot(10000, this, &MainWindow::fetchAnalysisResult);
         
     } else {
         QString errorMsg = QString("Upload failed!\nError: %1\n%2")
