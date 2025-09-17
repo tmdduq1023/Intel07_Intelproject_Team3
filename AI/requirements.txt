@@ -1,0 +1,10 @@
+torch
+torchvision
+numpy
+Pillow
+timm
+tqdm
+opencv-python
+Flask
+requests
+geti-sdk==2.6.0
