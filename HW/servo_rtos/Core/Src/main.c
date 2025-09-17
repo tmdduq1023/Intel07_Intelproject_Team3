@@ -57,21 +57,22 @@ UART_HandleTypeDef huart2;
 DMA_HandleTypeDef hdma_usart1_rx;
 DMA_HandleTypeDef hdma_usart2_tx;
 
-osThreadId motorTaskHandle;
+osThreadId defaultTaskHandle;
 osThreadId myTask02Handle;
 osThreadId myTask03Handle;
+osThreadId myTask04Handle;
+osThreadId myTask05Handle;
+osSemaphoreId uartRxSemHandle;
+osSemaphoreId servo1StartSemHandle;
+osSemaphoreId servo2StartSemHandle;
+osSemaphoreId servo3StartSemHandle;
+osSemaphoreId servo4StartSemHandle;
+osSemaphoreId sequenceDoneSemHandle;
 /* USER CODE BEGIN PV */
-typedef enum {
-    MOTOR_STOP,
-    MOTOR_FORWARD,
-    //MOTOR_BACKWARD
-} MotorCommand_t;
-
-volatile MotorCommand_t motorCommand = MOTOR_STOP;
-volatile int motorFlag = 1;
-volatile int servoDone = 0;
-volatile int uartFlag = 0;
+//volatile int uartFlag = 0;
 uint8_t rx_buf[RX_BUF_LEN];
+int arrbuff[4] = {0};
+char tx_buffer[40];
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -84,11 +85,11 @@ static void MX_USART1_UART_Init(void);
 void StartDefaultTask(void const * argument);
 void StartTask02(void const * argument);
 void StartTask03(void const * argument);
+void StartTask04(void const * argument);
+void StartTask05(void const * argument);
 
 /* USER CODE BEGIN PFP */
-void stepMotor(int step);
-void Forward90(void);
-//void Backward90(void);
+
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -135,13 +136,45 @@ int main(void)
 
   if(HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_1) != HAL_OK)
 	Error_Handler();
+  if(HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_2) != HAL_OK)
+	Error_Handler();
+  if(HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_3) != HAL_OK)
+	Error_Handler();
+  if(HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_4) != HAL_OK)
+	Error_Handler();
 
   HAL_UARTEx_ReceiveToIdle_DMA(&huart1, rx_buf, RX_BUF_LEN);//uart활성화
+
   /* USER CODE END 2 */
 
   /* USER CODE BEGIN RTOS_MUTEX */
   /* add mutexes, ... */
   /* USER CODE END RTOS_MUTEX */
+
+  /* Create the semaphores(s) */
+  /* definition and creation of uartRxSem */
+  osSemaphoreDef(uartRxSem);
+  uartRxSemHandle = osSemaphoreCreate(osSemaphore(uartRxSem), 1);
+
+  /* definition and creation of servo1StartSem */
+  osSemaphoreDef(servo1StartSem);
+  servo1StartSemHandle = osSemaphoreCreate(osSemaphore(servo1StartSem), 1);
+
+  /* definition and creation of servo2StartSem */
+  osSemaphoreDef(servo2StartSem);
+  servo2StartSemHandle = osSemaphoreCreate(osSemaphore(servo2StartSem), 1);
+
+  /* definition and creation of servo3StartSem */
+  osSemaphoreDef(servo3StartSem);
+  servo3StartSemHandle = osSemaphoreCreate(osSemaphore(servo3StartSem), 1);
+
+  /* definition and creation of servo4StartSem */
+  osSemaphoreDef(servo4StartSem);
+  servo4StartSemHandle = osSemaphoreCreate(osSemaphore(servo4StartSem), 1);
+
+  /* definition and creation of sequenceDoneSem */
+  osSemaphoreDef(sequenceDoneSem);
+  sequenceDoneSemHandle = osSemaphoreCreate(osSemaphore(sequenceDoneSem), 1);
 
   /* USER CODE BEGIN RTOS_SEMAPHORES */
   /* add semaphores, ... */
@@ -156,9 +189,9 @@ int main(void)
   /* USER CODE END RTOS_QUEUES */
 
   /* Create the thread(s) */
-  /* definition and creation of motorTask */
-  osThreadDef(motorTask, StartDefaultTask, osPriorityNormal, 0, 128);
-  motorTaskHandle = osThreadCreate(osThread(motorTask), NULL);
+  /* definition and creation of defaultTask */
+  osThreadDef(defaultTask, StartDefaultTask, osPriorityNormal, 0, 256);
+  defaultTaskHandle = osThreadCreate(osThread(defaultTask), NULL);
 
   /* definition and creation of myTask02 */
   osThreadDef(myTask02, StartTask02, osPriorityIdle, 0, 128);
@@ -168,8 +201,22 @@ int main(void)
   osThreadDef(myTask03, StartTask03, osPriorityIdle, 0, 128);
   myTask03Handle = osThreadCreate(osThread(myTask03), NULL);
 
+  /* definition and creation of myTask04 */
+  osThreadDef(myTask04, StartTask04, osPriorityIdle, 0, 128);
+  myTask04Handle = osThreadCreate(osThread(myTask04), NULL);
+
+  /* definition and creation of myTask05 */
+  osThreadDef(myTask05, StartTask05, osPriorityIdle, 0, 128);
+  myTask05Handle = osThreadCreate(osThread(myTask05), NULL);
+
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
+  osSemaphoreWait(uartRxSemHandle, 0);
+  osSemaphoreWait(servo1StartSemHandle, 0);
+  osSemaphoreWait(servo2StartSemHandle, 0);
+  osSemaphoreWait(servo3StartSemHandle, 0);
+  osSemaphoreWait(servo4StartSemHandle, 0);
+  osSemaphoreWait(sequenceDoneSemHandle, 0);
   /* USER CODE END RTOS_THREADS */
 
   /* Start scheduler */
@@ -246,7 +293,6 @@ static void MX_TIM4_Init(void)
 
   /* USER CODE END TIM4_Init 0 */
 
-  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
   TIM_MasterConfigTypeDef sMasterConfig = {0};
   TIM_OC_InitTypeDef sConfigOC = {0};
 
@@ -254,20 +300,11 @@ static void MX_TIM4_Init(void)
 
   /* USER CODE END TIM4_Init 1 */
   htim4.Instance = TIM4;
-  htim4.Init.Prescaler = 84-1;
+  htim4.Init.Prescaler = 84;
   htim4.Init.CounterMode = TIM_COUNTERMODE_UP;
   htim4.Init.Period = 20000-1;
   htim4.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim4.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
-  if (HAL_TIM_Base_Init(&htim4) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
-  if (HAL_TIM_ConfigClockSource(&htim4, &sClockSourceConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
   if (HAL_TIM_PWM_Init(&htim4) != HAL_OK)
   {
     Error_Handler();
@@ -279,10 +316,23 @@ static void MX_TIM4_Init(void)
     Error_Handler();
   }
   sConfigOC.OCMode = TIM_OCMODE_PWM1;
-  sConfigOC.Pulse = 0;
+  sConfigOC.Pulse = 2000;
   sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
   sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
   if (HAL_TIM_PWM_ConfigChannel(&htim4, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_TIM_PWM_ConfigChannel(&htim4, &sConfigOC, TIM_CHANNEL_2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_TIM_PWM_ConfigChannel(&htim4, &sConfigOC, TIM_CHANNEL_3) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sConfigOC.Pulse = 0;
+  if (HAL_TIM_PWM_ConfigChannel(&htim4, &sConfigOC, TIM_CHANNEL_4) != HAL_OK)
   {
     Error_Handler();
   }
@@ -434,91 +484,52 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size) //uart
   if(huart->Instance==USART1){
     // rx_buf[0..Size-1] 가 이번 프레임
     // Circular 유지하려면: __HAL_DMA_DISABLE_IT(huart->hdmarx, DMA_IT_HT); // 선택
-	  uartFlag = 1;
+	  //uartFlag = 1;
 	  HAL_UART_Transmit(&huart2, rx_buf, Size, 100);
-
+	  osSemaphoreRelease(uartRxSemHandle);
 	  HAL_UARTEx_ReceiveToIdle_DMA(&huart1, rx_buf, RX_BUF_LEN);
   }
 }
 
-void stepMotor(int step) {
-    switch (step) {
-        case 0:
-            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_0, GPIO_PIN_SET);
-            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_1, GPIO_PIN_RESET);
-            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_2, GPIO_PIN_RESET);
-            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_3, GPIO_PIN_RESET);
-            break;
-        case 1:
-            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_0, GPIO_PIN_SET);
-            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_1, GPIO_PIN_SET);
-            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_2, GPIO_PIN_RESET);
-            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_3, GPIO_PIN_RESET);
-            break;
-        case 2:
-            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_0, GPIO_PIN_RESET);
-            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_1, GPIO_PIN_SET);
-            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_2, GPIO_PIN_RESET);
-            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_3, GPIO_PIN_RESET);
-            break;
-        case 3:
-            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_0, GPIO_PIN_RESET);
-            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_1, GPIO_PIN_SET);
-            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_2, GPIO_PIN_SET);
-            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_3, GPIO_PIN_RESET);
-            break;
-        case 4:
-            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_0, GPIO_PIN_RESET);
-            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_1, GPIO_PIN_RESET);
-            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_2, GPIO_PIN_SET);
-            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_3, GPIO_PIN_RESET);
-            break;
-        case 5:
-            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_0, GPIO_PIN_RESET);
-            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_1, GPIO_PIN_RESET);
-            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_2, GPIO_PIN_SET);
-            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_3, GPIO_PIN_SET);
-            break;
-        case 6:
-            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_0, GPIO_PIN_RESET);
-            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_1, GPIO_PIN_RESET);
-            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_2, GPIO_PIN_RESET);
-            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_3, GPIO_PIN_SET);
-            break;
-        case 7:
-            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_0, GPIO_PIN_SET);
-            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_1, GPIO_PIN_RESET);
-            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_2, GPIO_PIN_RESET);
-            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_3, GPIO_PIN_SET);
-            break;
-    }
-}
-
-void Forward90(void)
+void servo1(void)
 {
-    const int one_revolution = 4096;
-    const int delay_ms = 1;
-
-    for(int i = 0; i < one_revolution / 4; i++)
-    {
-        // 8-step sequence (0 to 7)
-        stepMotor(i % 8);
-        osDelay(delay_ms);
-    }
+	HAL_GPIO_WritePin(GPIOC, GPIO_PIN_0, GPIO_PIN_SET);
+	__HAL_TIM_SetCompare(&htim4, TIM_CHANNEL_1, 1500); //-45도
+	osDelay(1000);
+	__HAL_TIM_SetCompare(&htim4, TIM_CHANNEL_1, 2000); //45도
+	osDelay(5000);
+	HAL_GPIO_WritePin(GPIOC, GPIO_PIN_0, GPIO_PIN_RESET);
 }
+void servo2(void)
+{
+	HAL_GPIO_WritePin(GPIOC, GPIO_PIN_1, GPIO_PIN_SET);
+	__HAL_TIM_SetCompare(&htim4, TIM_CHANNEL_2, 1500); //-45도
+	osDelay(1000);
 
-//void Backward90(void)
-//{
-//    const int one_revolution = 4096;
-//    const int delay_ms = 1;
-//
-//    for(int i = 0; i < one_revolution / 4; i++)
-//    {
-//        // 8-step sequence in reverse (7 to 0)
-//        stepMotor(7 - (i % 8));
-//        osDelay(delay_ms);
-//    }
-//}
+	__HAL_TIM_SetCompare(&htim4, TIM_CHANNEL_2, 2000); //45도
+	osDelay(5000);
+	HAL_GPIO_WritePin(GPIOC, GPIO_PIN_1, GPIO_PIN_RESET);
+}
+void servo3(void)
+{
+	HAL_GPIO_WritePin(GPIOC, GPIO_PIN_2, GPIO_PIN_SET);
+	__HAL_TIM_SetCompare(&htim4, TIM_CHANNEL_3, 1500); //-45도
+	osDelay(1000);
+
+	__HAL_TIM_SetCompare(&htim4, TIM_CHANNEL_3, 2000); //45도
+	osDelay(5000);
+	HAL_GPIO_WritePin(GPIOC, GPIO_PIN_2, GPIO_PIN_RESET);
+}
+void servo4(void)
+{
+	HAL_GPIO_WritePin(GPIOC, GPIO_PIN_3, GPIO_PIN_SET);
+	__HAL_TIM_SetCompare(&htim4, TIM_CHANNEL_4, 1500); //-45도
+	osDelay(1000);
+
+	__HAL_TIM_SetCompare(&htim4, TIM_CHANNEL_4, 2000); //45도
+	osDelay(5000);
+	HAL_GPIO_WritePin(GPIOC, GPIO_PIN_3, GPIO_PIN_RESET);
+}
 
 PUTCHAR_PROTOTYPE
 {
@@ -543,28 +554,29 @@ void StartDefaultTask(void const * argument)
   /* Infinite loop */
   for(;;)
   {
-	  switch (motorCommand)
-		{
-			case MOTOR_FORWARD:
-				__HAL_TIM_SetCompare(&htim4, TIM_CHANNEL_1, 1000); //-45도
-				osDelay(1000);
-		//			__HAL_TIM_SetCompare(&htim4, TIM_CHANNEL_1, 1500); //0도
-		//			osDelay(1000);
-				__HAL_TIM_SetCompare(&htim4, TIM_CHANNEL_1, 2000); //45도
-				servoDone = 1;
-				motorCommand = MOTOR_STOP; // 명령 수행 완료 후 대기 상태로 변경
-				break;
+	  osSemaphoreWait(uartRxSemHandle, osWaitForever);
 
-			case MOTOR_STOP:
-				motorFlag = 0;
-				break;
-		}
-	  if(!motorFlag&&servoDone)
-	  {
-		  Forward90();
-		  servoDone = 0;
-	  }
-	  osDelay(10);
+	int i=0;
+	char * pToken;
+	char * pArray[ARR_CNT]={0};
+	//int arrbuff[4] = {0};
+	pToken = strtok(rx_buf,"@");
+	while(pToken != NULL)
+	{
+		pArray[i] =  pToken;
+		if(++i >= ARR_CNT)
+		  break;
+		pToken = strtok(NULL,"@");
+	}
+	for(int j =0; j<sizeof(arrbuff)/sizeof(int); j++)
+	{
+		arrbuff[j]= atoi(pArray[j]);
+		printf("arrbuff[%d]-> %d\r\n",j,arrbuff[j]);
+	}
+	memset(rx_buf, 0, RX_BUF_LEN);
+
+	osSemaphoreRelease(servo1StartSemHandle);
+	osSemaphoreWait(sequenceDoneSemHandle, osWaitForever);
   }
   /* USER CODE END 5 */
 }
@@ -582,47 +594,19 @@ void StartTask02(void const * argument)
   /* Infinite loop */
   for(;;)
   {
-
-	int i=0;
-	char * pToken;
-	char * pArray[ARR_CNT]={0};
-	int arrbuff[4];
-	pToken = strtok(rx_buf,"@");
-	while(pToken != NULL)
+	osSemaphoreWait(servo1StartSemHandle, osWaitForever);
+	if (arrbuff[0])
 	{
-		pArray[i] =  pToken;
-		if(++i >= ARR_CNT)
-		  break;
-		pToken = strtok(NULL,"@");
+		strcpy(tx_buffer, "Moisture@Yes@\r\n");
+		HAL_UART_Transmit(&huart1, (uint8_t*)tx_buffer, strlen(tx_buffer), 100);
+		servo1();
 	}
-	for(int j =0; j<sizeof(arrbuff)/sizeof(int); j++)
+	else
 	{
-		arrbuff[j]= atoi(pArray[j]);
+		strcpy(tx_buffer, "Moisture@No@\r\n");
+		HAL_UART_Transmit(&huart1, (uint8_t*)tx_buffer, strlen(tx_buffer), 100);
 	}
-	if(uartFlag)
-	{
-		for(int k =0; k<sizeof(arrbuff)/sizeof(int); k++)
-			{
-				printf("arrbuff-> %d\r\n",arrbuff[k]);
-				if (arrbuff[k])
-				{
-					  motorCommand = MOTOR_FORWARD;
-					  motorFlag = 1;
-					  servoDone = 0;
-
-					  osDelay(3000);
-				}
-				else
-				{
-					Forward90();
-					motorFlag = 1;
-					servoDone = 0;
-					osDelay(100);
-				}
-			}
-	}
-	uartFlag = 0;
-	osDelay(10);
+	osSemaphoreRelease(servo2StartSemHandle);
   }
   /* USER CODE END StartTask02 */
 }
@@ -640,9 +624,86 @@ void StartTask03(void const * argument)
   /* Infinite loop */
   for(;;)
   {
-    osDelay(1);
+	osSemaphoreWait(servo2StartSemHandle, osWaitForever);
+	if (arrbuff[1])
+	{
+		strcpy(tx_buffer, "Elasticity@Yes@\r\n");
+		HAL_UART_Transmit(&huart1, (uint8_t*)tx_buffer, strlen(tx_buffer), 100);
+		servo2();
+	}
+	else
+	{
+		strcpy(tx_buffer, "Elasticity@No@\r\n");
+		HAL_UART_Transmit(&huart1, (uint8_t*)tx_buffer, strlen(tx_buffer), 100);
+	}
+	osSemaphoreRelease(servo3StartSemHandle);
   }
   /* USER CODE END StartTask03 */
+}
+
+/* USER CODE BEGIN Header_StartTask04 */
+/**
+* @brief Function implementing the myTask04 thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_StartTask04 */
+void StartTask04(void const * argument)
+{
+  /* USER CODE BEGIN StartTask04 */
+  /* Infinite loop */
+  for(;;)
+  {
+	  osSemaphoreWait(servo3StartSemHandle, osWaitForever);
+	if (arrbuff[2])
+	{
+		strcpy(tx_buffer, "Whitening@Yes@\r\n");
+		HAL_UART_Transmit(&huart1, (uint8_t*)tx_buffer, strlen(tx_buffer), 100);
+		servo3();
+	}
+	else
+	{
+		strcpy(tx_buffer, "Whitening@No@\r\n");
+		HAL_UART_Transmit(&huart1, (uint8_t*)tx_buffer, strlen(tx_buffer), 100);
+	}
+	osSemaphoreRelease(servo4StartSemHandle);
+  }
+  /* USER CODE END StartTask04 */
+}
+
+/* USER CODE BEGIN Header_StartTask05 */
+/**
+* @brief Function implementing the myTask05 thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_StartTask05 */
+void StartTask05(void const * argument)
+{
+  /* USER CODE BEGIN StartTask05 */
+  /* Infinite loop */
+  for(;;)
+  {
+	  osSemaphoreWait(servo4StartSemHandle, osWaitForever);
+	if (arrbuff[3])
+	{
+		strcpy(tx_buffer, "Pore@Yes@\r\n");
+		HAL_UART_Transmit(&huart1, (uint8_t*)tx_buffer, strlen(tx_buffer), 100);
+		servo4();
+		strcpy(tx_buffer, "END\r\n");
+		HAL_UART_Transmit(&huart1, (uint8_t*)tx_buffer, strlen(tx_buffer), 100);
+	}
+	else
+	{
+		strcpy(tx_buffer, "Pore@No@\r\n");
+		HAL_UART_Transmit(&huart1, (uint8_t*)tx_buffer, strlen(tx_buffer), 100);
+		osDelay(1000);
+		strcpy(tx_buffer, "END\r\n");
+		HAL_UART_Transmit(&huart1, (uint8_t*)tx_buffer, strlen(tx_buffer), 100);
+	}
+	osSemaphoreRelease(sequenceDoneSemHandle);
+  }
+  /* USER CODE END StartTask05 */
 }
 
 /**
@@ -657,11 +718,6 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
   /* USER CODE BEGIN Callback 0 */
 
-	if(htim->Instance == TIM4)
-	{
-		HAL_IncTick();
-
-	}
   /* USER CODE END Callback 0 */
   if (htim->Instance == TIM3)
   {
