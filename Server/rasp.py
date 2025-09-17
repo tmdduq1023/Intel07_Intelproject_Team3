@@ -22,6 +22,21 @@ def receive_json():
     if payload is None:
         return jsonify({"error": "invalid json"}), 400
 
+    # ROI detection 실패 메시지 체크
+    if payload.get("message") and payload["message"].startswith("ROI detection failed"):
+        print(f"ROI detection 실패 수신: {payload['message']}")
+        # 실패 상태를 저장하여 Qt에서 확인할 수 있도록 함
+        latest_analysis_data = {
+            "status": "roi_failed",
+            "message": payload["message"],
+            "retry_required": True
+        }
+        return jsonify({
+            "status": "roi_failed",
+            "message": "ROI detection failed, retry required",
+            "analysis_data": latest_analysis_data
+        }), 200
+
     try:
         parts = [
             payload["forehead"]["moisture"],
@@ -80,7 +95,7 @@ def receive_json():
         else:
             pigmentation_flag = 0
 
-        if pore_average >= 3:
+        if pore_average >= 500:
             pore_flag = 1
         else:
             pore_flag = 0
@@ -126,6 +141,7 @@ def receive_json():
                 lib_dryness_flag,
             ]
         )
+        # data="1@1@1@1@1"
         uart_write(data)
 
         print(f"하드웨어로 전송 완료: {data}")
@@ -263,4 +279,4 @@ if __name__ == "__main__":
     start_uart_reader()
 
     # 모든 인터페이스에서 접근 가능하도록 설정
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    app.run(host="0.0.0.0", port=4387, debug=True)

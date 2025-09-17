@@ -55,31 +55,51 @@ def recieve_image():
                 ]
             )
         elif TEST:
-            random_test_data: dict = {
-                "forehead": {
-                    "moisture": random.randint(0, 100),
-                    "elasticity": random.randint(0, 100),
-                    "pigmentation": random.randint(0, 5),
-                },
-                "l_check": {
-                    "moisture": random.randint(0, 100),
-                    "elasticity": random.randint(0, 100),
-                    "pigmentation": random.randint(0, 5),
-                    "pore": random.randint(0, 5),
-                },
-                "r_check": {
-                    "moisture": random.randint(0, 100),
-                    "elasticity": random.randint(0, 100),
-                    "pigmentation": random.randint(0, 5),
-                    "pore": random.randint(0, 5),
-                },
-                "chin": {
-                    "moisture": random.randint(0, 100),
-                    "elasticity": random.randint(0, 100),
-                },
-                "lib": {"dryness": random.randint(0, 4)},
-            }
-            send_json(random_test_data)
+            # 70% 확률로 ROI detection 실패 시뮬레이션 (테스트용)
+            if random.randint(1, 10) <= 7:
+                # ROI detection 실패 메시지 전송
+                roi_failed_data: dict = {
+                    "message": "ROI detection failed : forehead, left_cheek"
+                }
+                send_json(roi_failed_data)
+
+                # Qt에 실패 응답 반환
+                return (
+                    jsonify(
+                        {
+                            "status": "error",
+                            "message": "ROI detection failed : forehead, left_cheek",
+                        }
+                    ),
+                    400,
+                )
+            else:
+                # 정상 랜덤 데이터 전송
+                random_test_data: dict = {
+                    "forehead": {
+                        "moisture": random.randint(0, 100),
+                        "elasticity": random.randint(0, 100),
+                        "pigmentation": random.randint(0, 5),
+                    },
+                    "l_check": {
+                        "moisture": random.randint(0, 100),
+                        "elasticity": random.randint(0, 100),
+                        "pigmentation": random.randint(0, 5),
+                        "pore": random.randint(0, 5),
+                    },
+                    "r_check": {
+                        "moisture": random.randint(0, 100),
+                        "elasticity": random.randint(0, 100),
+                        "pigmentation": random.randint(0, 5),
+                        "pore": random.randint(0, 5),
+                    },
+                    "chin": {
+                        "moisture": random.randint(0, 100),
+                        "elasticity": random.randint(0, 100),
+                    },
+                    "lib": {"dryness": random.randint(0, 4)},
+                }
+                send_json(random_test_data)
 
         # Qt에서 기대하는 JSON 응답
         return (

@@ -280,30 +280,8 @@ void MainWindow::onUploadFinished(QNetworkReply* reply)
         if (!jsonResponse.isNull() && jsonResponse.isObject()) {
             QJsonObject obj = jsonResponse.object();
 
-            // ROI detection 실패 처리
             if (obj.contains("message")) {
                 QString serverMessage = obj["message"].toString();
-
-                if (serverMessage.startsWith("ROI detection failed")) {
-                    // "ROI detection failed : part1, part2, ..." 형태에서 부위 추출
-                    QStringList parts = serverMessage.split(" : ");
-                    if (parts.size() > 1) {
-                        QString failedParts = parts[1].trimmed();
-                        QString retryMessage = QString("사진을 다시 찍어 주세요 : %1").arg(failedParts);
-
-                        QMessageBox::warning(this, "분석 실패", retryMessage);
-                        qDebug() << "ROI detection failed for parts:" << failedParts;
-
-                        // 카메라를 다시 활성화하여 재촬영 가능하게 함
-                        ui->snapShotButton->setEnabled(true);
-                        ui->snapShotButton->setText("사진 촬영");
-                        ui->statusbar->showMessage("ROI 검출 실패 - 사진을 다시 촬영해주세요", 5000);
-
-                        reply->deleteLater();
-                        return;
-                    }
-                }
-
                 message = serverMessage;
             }
             if (obj.contains("file_id")) {
@@ -318,6 +296,51 @@ void MainWindow::onUploadFinished(QNetworkReply* reply)
         QTimer::singleShot(10000, this, &MainWindow::fetchAnalysisResult);
         
     } else {
+        // 업로드 실패 시에도 서버 응답을 확인 (ROI detection 실패 메시지 처리)
+        QByteArray response = reply->readAll();
+        qDebug() << "Upload failed. Server response:" << response;
+
+        // JSON 응답 파싱 시도
+        QJsonDocument jsonResponse = QJsonDocument::fromJson(response);
+        if (!jsonResponse.isNull() && jsonResponse.isObject()) {
+            QJsonObject obj = jsonResponse.object();
+
+            if (obj.contains("message")) {
+                QString serverMessage = obj["message"].toString();
+
+                if (serverMessage.startsWith("ROI detection failed") || serverMessage.startsWith("ROI 탐지 실패")) {
+                    // "ROI detection failed : part1, part2, ..." 또는 "ROI 탐지 실패: part1, part2, ..." 형태에서 부위 추출
+                    QStringList parts;
+                    QString retryMessage = "사진을 다시 찍어 주세요";
+
+                    if (serverMessage.contains(" : ")) {
+                        parts = serverMessage.split(" : ");
+                    } else if (serverMessage.contains(": ")) {
+                        parts = serverMessage.split(": ");
+                    }
+
+                    if (parts.size() > 1) {
+                        QString failedParts = parts[1].trimmed();
+                        // "facepart::" 제거
+                        failedParts = failedParts.replace("facepart::", "");
+                        retryMessage = QString("사진을 다시 찍어 주세요 : %1").arg(failedParts);
+                    }
+
+                    QMessageBox::warning(this, "분석 실패", retryMessage);
+                    qDebug() << "ROI detection failed for parts:" << parts;
+
+                    // 카메라를 다시 활성화하여 재촬영 가능하게 함
+                    ui->snapShotButton->setEnabled(true);
+                    ui->snapShotButton->setText("사진 촬영");
+                    ui->statusbar->showMessage("ROI 검출 실패 - 사진을 다시 촬영해주세요", 5000);
+
+                    reply->deleteLater();
+                    return;
+                }
+            }
+        }
+
+        // 일반적인 업로드 에러 처리
         QString errorMsg = QString("Upload failed!\nError: %1\n%2")
         .arg(reply->error())
             .arg(reply->errorString());
@@ -491,6 +514,45 @@ void MainWindow::fetchAnalysisResult()
             if (jsonDoc.isObject()) {
                 QJsonObject responseObj = jsonDoc.object();
                 qDebug() << "Parsed JSON object:" << responseObj;
+
+                // ROI detection 실패 처리 추가
+                if (responseObj.contains("analysis_data")) {
+                    QJsonObject analysisData = responseObj["analysis_data"].toObject();
+
+                    // ROI detection 실패 체크
+                    if (analysisData.contains("status") &&
+                        analysisData["status"].toString() == "roi_failed") {
+
+                        QString failedMessage = analysisData["message"].toString();
+                        QString retryMessage = "사진을 다시 찍어 주세요";
+
+                        QStringList parts;
+                        if (failedMessage.contains(" : ")) {
+                            parts = failedMessage.split(" : ");
+                        } else if (failedMessage.contains(": ")) {
+                            parts = failedMessage.split(": ");
+                        }
+
+                        if (parts.size() > 1) {
+                            QString failedParts = parts[1].trimmed();
+                            // "facepart::" 제거
+                            failedParts = failedParts.replace("facepart::", "");
+                            retryMessage = QString("사진을 다시 찍어 주세요 : %1").arg(failedParts);
+                        }
+
+                        QMessageBox::warning(this, "분석 실패", retryMessage);
+                        qDebug() << "ROI detection failed:" << failedMessage;
+
+                        // 카메라를 다시 활성화하여 재촬영 가능하게 함
+                        ui->snapShotButton->setEnabled(true);
+                        ui->snapShotButton->setText("사진 촬영");
+                        ui->statusbar->showMessage("ROI 검출 실패 - 사진을 다시 촬영해주세요", 5000);
+
+                        reply->deleteLater();
+                        analysisNetworkManager->deleteLater();
+                        return;
+                    }
+                }
 
                 if (responseObj["status"].toString() == "success" &&
                     responseObj.contains("analysis_data")) {
