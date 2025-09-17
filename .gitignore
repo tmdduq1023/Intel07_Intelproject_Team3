@@ -440,5 +440,5 @@ coco_skin_dataset.json
 
 CLAUDE.md
 
-debug/
+/debug/
 # End of https://www.toptal.com/developers/gitignore/api/c,c++,python,linux,macos,windows,eclipse,visualstudiocode,cmake,ninja
