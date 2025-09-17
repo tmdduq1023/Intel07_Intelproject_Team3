@@ -3,6 +3,7 @@ from flask import Flask, request, jsonify
 import os
 from werkzeug.utils import secure_filename
 import random
+import subprocess
 
 # 라즈베리파이의 실제 IP 주소로 변경
 DESTINATION_URL = "http://192.168.0.90:5000/receive"  # http:// 추가 및 포트 5000
@@ -44,34 +45,61 @@ def recieve_image():
             if not os.path.exists(upload_dir):
                 os.makedirs(upload_dir)
 
-            filename = secure_filename(file.filename)
-            file.save(os.path.join(upload_dir, filename))
+            filename = os.path.join(upload_dir, secure_filename(file.filename))
+            file.save(filename)
+            subprocess.Popen(
+                [
+                    "python3",
+                    "/home/ubuntu07/workingspace/intel_class_md/Intel_final_project/Intel07_Intelproject_Team3/AI/infer_skin_sever.py",
+                    filename,
+                ]
+            )
         elif TEST:
-            random_test_data: dict = {
-                "forehead": {
-                    "moisture": random.randint(0, 100),
-                    "elasticity": random.randint(0, 100),
-                    "pigmentation": random.randint(0, 100),
-                },
-                "l_check": {
-                    "moisture": random.randint(0, 100),
-                    "elasticity": random.randint(0, 100),
-                    "pigmentation": random.randint(0, 100),
-                    "pore": random.randint(0, 100),
-                },
-                "r_check": {
-                    "moisture": random.randint(0, 100),
-                    "elasticity": random.randint(0, 100),
-                    "pigmentation": random.randint(0, 100),
-                    "pore": random.randint(0, 100),
-                },
-                "chin": {
-                    "moisture": random.randint(0, 100),
-                    "elasticity": random.randint(0, 100),
-                },
-                "lib": {"elasticity": random.randint(0, 100)},
-            }
-            send_json(random_test_data)
+            # 70% 확률로 ROI detection 실패 시뮬레이션 (테스트용)
+            if random.randint(1, 10) <= 7:
+                # ROI detection 실패 메시지 전송
+                roi_failed_data: dict = {
+                    "message": "ROI detection failed : forehead, left_cheek"
+                }
+                send_json(roi_failed_data)
+
+                # Qt에 실패 응답 반환
+                return (
+                    jsonify(
+                        {
+                            "status": "error",
+                            "message": "ROI detection failed : forehead, left_cheek",
+                        }
+                    ),
+                    400,
+                )
+            else:
+                # 정상 랜덤 데이터 전송
+                random_test_data: dict = {
+                    "forehead": {
+                        "moisture": random.randint(0, 100),
+                        "elasticity": random.randint(0, 100),
+                        "pigmentation": random.randint(0, 5),
+                    },
+                    "l_check": {
+                        "moisture": random.randint(0, 100),
+                        "elasticity": random.randint(0, 100),
+                        "pigmentation": random.randint(0, 5),
+                        "pore": random.randint(0, 5),
+                    },
+                    "r_check": {
+                        "moisture": random.randint(0, 100),
+                        "elasticity": random.randint(0, 100),
+                        "pigmentation": random.randint(0, 5),
+                        "pore": random.randint(0, 5),
+                    },
+                    "chin": {
+                        "moisture": random.randint(0, 100),
+                        "elasticity": random.randint(0, 100),
+                    },
+                    "lib": {"dryness": random.randint(0, 4)},
+                }
+                send_json(random_test_data)
 
         # Qt에서 기대하는 JSON 응답
         return (
@@ -79,7 +107,8 @@ def recieve_image():
                 {
                     "status": "success",
                     "message": "Image uploaded successfully!",
-                    "filename": "filename",  # filename
+                    # "filename": filename,
+                    "filename": "filename",  # 테스트용 실제 활용에서는 이 줄 지우고 윗줄 활성화.
                 }
             ),
             200,

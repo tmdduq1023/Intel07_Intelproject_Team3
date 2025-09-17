@@ -10,14 +10,19 @@
 #include <QGroupBox>
 #include <QPushButton>
 #include <QJsonObject>
+#include <QJsonArray>
 #include <QScrollArea>
 #include <QScreen>
 #include <QApplication>
+#include <QMessageBox>
 #include <QtCharts/QChartView>
 #include <QtCharts/QBarSeries>
 #include <QtCharts/QBarSet>
 #include <QtCharts/QValueAxis>
 #include <QtCharts/QBarCategoryAxis>
+
+// Forward declaration
+class NameInputDialog;
 
 class AnalysisResultDialog : public QDialog
 {
@@ -37,6 +42,9 @@ private:
     QWidget* createComparisonMetricWidget(const QString &metricName, int currentValue, int previousValue);
     QtCharts::QChartView* createUnifiedBarChart(const QJsonObject &data);
     QtCharts::QChartView* createUnifiedComparisonChart(const QJsonObject &currentData, const QJsonObject &previousData);
+    QWidget* createRecommendationsWidget(const QJsonObject &data);
+    void showRecommendationsDialog(const QJsonObject &data);
+    void showNameInputDialog();
     QString getMetricDescription(const QString &metricName);
     QString getScoreDescription(int score);
     QColor getScoreColor(int score);
@@ -47,6 +55,7 @@ private:
     QJsonObject previousData;
     QString userName;
     bool isComparison;
+    bool recommendationViewed;
     QScrollArea *scrollArea;
     QWidget *contentWidget;
     QVBoxLayout *mainLayout;

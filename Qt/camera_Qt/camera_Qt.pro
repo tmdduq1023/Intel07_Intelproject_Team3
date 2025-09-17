@@ -1,8 +1,10 @@
-QT       += core gui widgets multimedia multimediawidgets network sql charts
+QT       += core gui widgets network sql charts
 
 greaterThan(QT_MAJOR_VERSION, 4): QT += widgets
 
 CONFIG += c++17
+
+# OpenCV removed - using simple Qt overlay instead
 
 # You can make your code fail to compile if it uses deprecated APIs.
 # In order to do so, uncomment the following line.
