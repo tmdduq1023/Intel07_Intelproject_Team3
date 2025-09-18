@@ -24,6 +24,8 @@ AI 카메라 기술을 활용하여 사용자의 피부 상태(수분, 탄력, �
 
 ![flow](./assets/flow.png)
 
+![flow2](./assets/flow2.png)
+
 ```
 Qt GUI Client → Image Processing Server → Hardware Control Server → Dispensing Hardware
      ↓                    ↓                        ↓                      ↓
@@ -47,11 +49,16 @@ Qt Client → [HTTP POST /upload] → [AI Processing] → [HTTP POST /receive] �
 - **기술**: Python Flask + UART 시리얼 통신
 - **기능**: 분석 데이터 수신, 하드웨어 제어, UART 프로토콜 변환
 
-#### 4. AI Models (`AI/`)
+#### 3. AI Models (`AI/`)
 - **기술**: PyTorch + Python Flask + Intel Geti SDK + ResNet-50
 - **기능**: ROI 검출, 피부 특성 분석, 분석 데이터 발신.
 - **모델**: ROI 검출 + 다중 헤드 피부 특성 분석
 - **영역**: 이마, 좌/우 볼, 턱, 입술 (총 5개 영역)
+
+#### 4. Hardware(`HW/`)
+- **board**: STM32F411re
+- **기술**: FreeRTOS, DMA+IDLE interrupt
+- **기능**: 4개의 서보모터를 UART 신호에 따라서 제어, 추천 화장품 표시
 
 ## 🚀 설치 및 환경 설정
 
