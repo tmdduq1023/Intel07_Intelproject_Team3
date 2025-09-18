@@ -22,6 +22,8 @@ AI 카메라 기술을 활용하여 사용자의 피부 상태(수분, 탄력, �
 
 ![활용데이터셋](./assets/dataset.png)
 
+<br>
+
 [데이터셋 링크](https://www.aihub.or.kr/aihubdata/data/view.do?pageIndex=1&currMenu=115&topMenu=100&srchOptnCnd=OPTNCND001&searchKeyword=%ED%95%9C%EA%B5%AD%EC%9D%B8+%ED%94%BC%EB%B6%80&srchDetailCnd=DETAILCND001&srchOrder=ORDER001&srchPagePer=20&aihubDataSe=data&dataSetSn=71645)
 
 ## 🏗️ 시스템 아키텍처
