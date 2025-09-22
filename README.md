@@ -4,8 +4,6 @@ Intel 07 Final Project - Team 3
 
 ![장치 전체 사진](./assets/all.png)
 
-![설명 영상](./assets/live_demo.mp4)
-
 발표 ppt : ![발표 ppt 다운로드 링크](./assets/ppt)
 ## 📋 프로젝트 개요
 
