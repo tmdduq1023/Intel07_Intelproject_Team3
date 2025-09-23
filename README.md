@@ -4,7 +4,7 @@ Intel 07 Final Project - Team 3
 
 ![장치 전체 사진](./assets/all.png)
 
-발표 ppt : ![발표 ppt 다운로드 링크](./assets/ppt)
+발표 ppt : ![발표 ppt 다운로드 링크](./assets/ppt.pdf)
 ## 📋 프로젝트 개요
 
 AI 카메라 기술을 활용하여 사용자의 피부 상태(수분, 탄력, 색소침착, 모공)를 실시간으로 분석하고, 개인 맞춤형 화장품을  자동 디스펜싱하는 스마트 뷰티 디바이스입니다.
